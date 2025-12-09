@@ -1,29 +1,8 @@
-// components/Dashboard.js
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import {
-  Thermometer,
-  Trash2,
-  RefreshCw,
-  Database,
-  Clock,
-  TrendingUp,
-  AlertCircle,
-  Activity,
-} from 'lucide-react';
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  Area,
-  AreaChart,
-} from 'recharts';
+import { Thermometer, Trash2, RefreshCw, Database, Clock, TrendingUp, AlertCircle, Activity } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Area, AreaChart } from 'recharts';
 
 const TemperatureDashboard = () => {
   const [latestData, setLatestData] = useState(null);
@@ -31,19 +10,8 @@ const TemperatureDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [cleanupLoading, setCleanupLoading] = useState(false);
   const [cleanupDays, setCleanupDays] = useState(7);
-  const [stats, setStats] = useState({
-    total: 0,
-    oldestDate: null,
-    newestDate: null,
-  });
+  const [stats, setStats] = useState({ total: 0, oldestDate: null, newestDate: null });
   const [cleanupResult, setCleanupResult] = useState(null);
-
-  const firebaseConfig = {
-    apiKey: 'AIzaSyDAMbhoIi8YsG5btxVzw7K4aaIGPlH85EY',
-    authDomain: 'battery-monitor-29168.firebaseapp.com',
-    databaseURL: 'https://battery-monitor-29168-default-rtdb.firebaseio.com',
-    projectId: 'battery-monitor-29168',
-  };
 
   useEffect(() => {
     initFirebase();
@@ -53,28 +21,33 @@ const TemperatureDashboard = () => {
 
   const initFirebase = async () => {
     try {
-      const firebaseApp = await import(
-        'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js'
-      );
-      const firebaseDatabase = await import(
-        'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js'
-      );
-      const firebaseFirestore = await import(
-        'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js'
-      );
+      // Import Firebase SDK dari npm
+      const { initializeApp } = await import('firebase/app');
+      const { getDatabase, ref, onValue } = await import('firebase/database');
+      const { getFirestore, collection, query, orderBy, limit, getDocs } = await import('firebase/firestore');
 
-      const app = firebaseApp.initializeApp(firebaseConfig);
-      window.firebaseDB = firebaseDatabase.getDatabase(app);
-      window.firebaseFirestore = firebaseFirestore.getFirestore(app);
-      window.firebaseRefs = {
-        ref: firebaseDatabase.ref,
-        onValue: firebaseDatabase.onValue,
-        collection: firebaseFirestore.collection,
-        query: firebaseFirestore.query,
-        orderBy: firebaseFirestore.orderBy,
-        limit: firebaseFirestore.limit,
-        getDocs: firebaseFirestore.getDocs,
-        where: firebaseFirestore.where,
+      const firebaseConfig = {
+        apiKey: "AIzaSyDAMbhoIi8YsG5btxVzw7K4aaIGPlH85EY",
+        authDomain: "battery-monitor-29168.firebaseapp.com",
+        databaseURL: "https://battery-monitor-29168-default-rtdb.firebaseio.com",
+        projectId: "battery-monitor-29168",
+      };
+
+      const app = initializeApp(firebaseConfig);
+      const rtdb = getDatabase(app);
+      const firestore = getFirestore(app);
+
+      // Store di window untuk akses global
+      window.firebaseInstances = {
+        rtdb,
+        firestore,
+        ref,
+        onValue,
+        collection,
+        query,
+        orderBy,
+        limit,
+        getDocs
       };
 
       loadData();
@@ -85,13 +58,13 @@ const TemperatureDashboard = () => {
   };
 
   const loadData = async () => {
-    if (!window.firebaseDB || !window.firebaseFirestore) return;
+    if (!window.firebaseInstances) return;
 
     try {
-      const { ref, onValue, collection, query, orderBy, limit, getDocs } =
-        window.firebaseRefs;
+      const { rtdb, firestore, ref, onValue, collection, query, orderBy, limit, getDocs } = window.firebaseInstances;
 
-      const rtdbRef = ref(window.firebaseDB, 'sensorData/temperature');
+      // Load latest from RTDB
+      const rtdbRef = ref(rtdb, 'sensorData/temperature');
       onValue(rtdbRef, (snapshot) => {
         const data = snapshot.val();
         if (data) {
@@ -99,14 +72,10 @@ const TemperatureDashboard = () => {
         }
       });
 
-      const historyRef = collection(
-        window.firebaseFirestore,
-        'sensorData',
-        'data',
-        'history'
-      );
+      // Load history from Firestore
+      const historyRef = collection(firestore, 'sensorData', 'data', 'history');
       const q = query(historyRef, orderBy('timestamp', 'desc'), limit(100));
-
+      
       const snapshot = await getDocs(q);
       const history = [];
       snapshot.forEach((doc) => {
@@ -115,7 +84,7 @@ const TemperatureDashboard = () => {
           id: doc.id,
           timestamp: parseInt(data.timestamp),
           celsius: parseFloat(data.celsius),
-          fahrenheit: parseFloat(data.fahrenheit),
+          fahrenheit: parseFloat(data.fahrenheit)
         });
       });
 
@@ -126,9 +95,7 @@ const TemperatureDashboard = () => {
         setStats({
           total: sortedHistory.length,
           oldestDate: new Date(sortedHistory[0].timestamp),
-          newestDate: new Date(
-            sortedHistory[sortedHistory.length - 1].timestamp
-          ),
+          newestDate: new Date(sortedHistory[sortedHistory.length - 1].timestamp)
         });
       }
 
@@ -140,8 +107,7 @@ const TemperatureDashboard = () => {
   };
 
   const handleCleanup = async () => {
-    if (!confirm(`Hapus data lebih dari ${cleanupDays} hari yang lalu?`))
-      return;
+    if (!confirm(`Hapus data lebih dari ${cleanupDays} hari yang lalu?`)) return;
 
     setCleanupLoading(true);
     setCleanupResult(null);
@@ -152,7 +118,7 @@ const TemperatureDashboard = () => {
       const response = await fetch('/api/cleanup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ olderThan }),
+        body: JSON.stringify({ olderThan })
       });
 
       const result = await response.json();
@@ -161,7 +127,7 @@ const TemperatureDashboard = () => {
         setCleanupResult({
           success: true,
           message: `✅ Berhasil menghapus ${result.deleted} data`,
-          deleted: result.deleted,
+          deleted: result.deleted
         });
         setTimeout(() => loadData(), 1000);
       } else {
@@ -170,7 +136,7 @@ const TemperatureDashboard = () => {
     } catch (error) {
       setCleanupResult({
         success: false,
-        message: `❌ Gagal: ${error.message}`,
+        message: `❌ Gagal: ${error.message}`
       });
     } finally {
       setCleanupLoading(false);
@@ -183,7 +149,7 @@ const TemperatureDashboard = () => {
       month: 'short',
       year: 'numeric',
       hour: '2-digit',
-      minute: '2-digit',
+      minute: '2-digit'
     });
   };
 
@@ -191,7 +157,7 @@ const TemperatureDashboard = () => {
     const date = new Date(timestamp);
     return date.toLocaleTimeString('id-ID', {
       hour: '2-digit',
-      minute: '2-digit',
+      minute: '2-digit'
     });
   };
 
@@ -199,7 +165,7 @@ const TemperatureDashboard = () => {
     time: formatChartDate(item.timestamp),
     celsius: item.celsius,
     fahrenheit: item.fahrenheit,
-    timestamp: item.timestamp,
+    timestamp: item.timestamp
   }));
 
   const CustomTooltip = ({ active, payload }) => {
@@ -210,12 +176,10 @@ const TemperatureDashboard = () => {
             {formatDate(payload[0].payload.timestamp)}
           </p>
           <p className="text-sm text-orange-600">
-            <span className="font-medium">Celsius:</span>{' '}
-            {payload[0].value.toFixed(2)}°C
+            <span className="font-medium">Celsius:</span> {payload[0].value.toFixed(2)}°C
           </p>
           <p className="text-sm text-blue-600">
-            <span className="font-medium">Fahrenheit:</span>{' '}
-            {payload[1].value.toFixed(2)}°F
+            <span className="font-medium">Fahrenheit:</span> {payload[1].value.toFixed(2)}°F
           </p>
         </div>
       );
@@ -244,15 +208,11 @@ const TemperatureDashboard = () => {
                 <Thermometer className="w-8 h-8 text-white" />
               </div>
               <div>
-                <h1 className="text-3xl font-bold text-gray-800">
-                  Temperature Monitor
-                </h1>
-                <p className="text-gray-500">
-                  Real-time DS18B20 Sensor Dashboard
-                </p>
+                <h1 className="text-3xl font-bold text-gray-800">Temperature Monitor</h1>
+                <p className="text-gray-500">Real-time DS18B20 Sensor Dashboard</p>
               </div>
             </div>
-            <button
+            <button 
               onClick={loadData}
               className="p-3 bg-blue-50 hover:bg-blue-100 rounded-xl transition-colors"
             >
@@ -275,9 +235,7 @@ const TemperatureDashboard = () => {
               {latestData?.celsius ? latestData.celsius.toFixed(2) : '--'}°C
             </div>
             <p className="text-white/80 text-sm">
-              {latestData?.timestamp
-                ? formatDate(latestData.timestamp)
-                : 'Waiting...'}
+              {latestData?.timestamp ? formatDate(latestData.timestamp) : 'Waiting...'}
             </p>
           </div>
 
@@ -291,13 +249,10 @@ const TemperatureDashboard = () => {
               </span>
             </div>
             <div className="text-5xl font-bold mb-2">
-              {latestData?.fahrenheit ? latestData.fahrenheit.toFixed(2) : '--'}
-              °F
+              {latestData?.fahrenheit ? latestData.fahrenheit.toFixed(2) : '--'}°F
             </div>
             <p className="text-white/80 text-sm">
-              {latestData?.timestamp
-                ? formatDate(latestData.timestamp)
-                : 'Waiting...'}
+              {latestData?.timestamp ? formatDate(latestData.timestamp) : 'Waiting...'}
             </p>
           </div>
 
@@ -306,9 +261,7 @@ const TemperatureDashboard = () => {
               <div className="bg-green-100 p-3 rounded-xl">
                 <TrendingUp className="w-6 h-6 text-green-600" />
               </div>
-              <h3 className="text-lg font-semibold text-gray-800">
-                Statistics
-              </h3>
+              <h3 className="text-lg font-semibold text-gray-800">Statistics</h3>
             </div>
             <div className="space-y-3">
               <div className="flex justify-between items-center">
@@ -320,29 +273,19 @@ const TemperatureDashboard = () => {
                   <div className="flex justify-between items-center">
                     <span className="text-gray-600">Min Temp</span>
                     <span className="font-bold text-blue-600">
-                      {Math.min(...historyData.map((d) => d.celsius)).toFixed(
-                        1
-                      )}
-                      °C
+                      {Math.min(...historyData.map(d => d.celsius)).toFixed(1)}°C
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-gray-600">Max Temp</span>
                     <span className="font-bold text-red-600">
-                      {Math.max(...historyData.map((d) => d.celsius)).toFixed(
-                        1
-                      )}
-                      °C
+                      {Math.max(...historyData.map(d => d.celsius)).toFixed(1)}°C
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-gray-600">Average</span>
                     <span className="font-bold text-gray-800">
-                      {(
-                        historyData.reduce((a, b) => a + b.celsius, 0) /
-                        historyData.length
-                      ).toFixed(1)}
-                      °C
+                      {(historyData.reduce((a, b) => a + b.celsius, 0) / historyData.length).toFixed(1)}°C
                     </span>
                   </div>
                 </>
@@ -358,16 +301,13 @@ const TemperatureDashboard = () => {
               Temperature History Chart - Last {historyData.length} Readings
             </h3>
           </div>
-
+          
           {historyData.length > 0 ? (
             <ResponsiveContainer width="100%" height={400}>
-              <LineChart
-                data={chartData}
-                margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-              >
+              <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
-                <XAxis
-                  dataKey="time"
+                <XAxis 
+                  dataKey="time" 
                   stroke="#666"
                   style={{ fontSize: '12px' }}
                   angle={-45}
@@ -375,44 +315,39 @@ const TemperatureDashboard = () => {
                   height={80}
                   interval={Math.floor(historyData.length / 10)}
                 />
-                <YAxis
+                <YAxis 
                   yAxisId="left"
                   stroke="#f97316"
                   style={{ fontSize: '12px' }}
-                  label={{
-                    value: 'Celsius (°C)',
-                    angle: -90,
-                    position: 'insideLeft',
-                  }}
+                  label={{ value: 'Celsius (°C)', angle: -90, position: 'insideLeft' }}
                 />
-                <YAxis
+                <YAxis 
                   yAxisId="right"
                   orientation="right"
                   stroke="#3b82f6"
                   style={{ fontSize: '12px' }}
-                  label={{
-                    value: 'Fahrenheit (°F)',
-                    angle: 90,
-                    position: 'insideRight',
-                  }}
+                  label={{ value: 'Fahrenheit (°F)', angle: 90, position: 'insideRight' }}
                 />
                 <Tooltip content={<CustomTooltip />} />
-                <Legend wrapperStyle={{ paddingTop: '20px' }} iconType="line" />
-                <Line
+                <Legend 
+                  wrapperStyle={{ paddingTop: '20px' }}
+                  iconType="line"
+                />
+                <Line 
                   yAxisId="left"
-                  type="monotone"
-                  dataKey="celsius"
-                  stroke="#f97316"
+                  type="monotone" 
+                  dataKey="celsius" 
+                  stroke="#f97316" 
                   strokeWidth={2}
                   dot={false}
                   name="Temperature (°C)"
                   activeDot={{ r: 6 }}
                 />
-                <Line
+                <Line 
                   yAxisId="right"
-                  type="monotone"
-                  dataKey="fahrenheit"
-                  stroke="#3b82f6"
+                  type="monotone" 
+                  dataKey="fahrenheit" 
+                  stroke="#3b82f6" 
                   strokeWidth={2}
                   dot={false}
                   name="Temperature (°F)"
@@ -437,41 +372,34 @@ const TemperatureDashboard = () => {
               Temperature Trend (Area Chart)
             </h3>
           </div>
-
+          
           {historyData.length > 0 ? (
             <ResponsiveContainer width="100%" height={300}>
-              <AreaChart
-                data={chartData}
-                margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
-              >
+              <AreaChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="colorCelsius" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#f97316" stopOpacity={0.8} />
-                    <stop offset="95%" stopColor="#f97316" stopOpacity={0.1} />
+                    <stop offset="5%" stopColor="#f97316" stopOpacity={0.8}/>
+                    <stop offset="95%" stopColor="#f97316" stopOpacity={0.1}/>
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
-                <XAxis
-                  dataKey="time"
+                <XAxis 
+                  dataKey="time" 
                   stroke="#666"
                   style={{ fontSize: '12px' }}
                   interval={Math.floor(historyData.length / 10)}
                 />
-                <YAxis
+                <YAxis 
                   stroke="#666"
                   style={{ fontSize: '12px' }}
-                  label={{
-                    value: 'Temperature (°C)',
-                    angle: -90,
-                    position: 'insideLeft',
-                  }}
+                  label={{ value: 'Temperature (°C)', angle: -90, position: 'insideLeft' }}
                 />
                 <Tooltip content={<CustomTooltip />} />
-                <Area
-                  type="monotone"
-                  dataKey="celsius"
-                  stroke="#f97316"
-                  fillOpacity={1}
+                <Area 
+                  type="monotone" 
+                  dataKey="celsius" 
+                  stroke="#f97316" 
+                  fillOpacity={1} 
                   fill="url(#colorCelsius)"
                   name="Temperature (°C)"
                 />
@@ -493,15 +421,11 @@ const TemperatureDashboard = () => {
             <>
               <div className="h-64 flex items-end justify-between gap-1">
                 {historyData.slice(-30).map((data, index) => {
-                  const minTemp = Math.min(
-                    ...historyData.map((d) => d.celsius)
-                  );
-                  const maxTemp = Math.max(
-                    ...historyData.map((d) => d.celsius)
-                  );
+                  const minTemp = Math.min(...historyData.map(d => d.celsius));
+                  const maxTemp = Math.max(...historyData.map(d => d.celsius));
                   const range = maxTemp - minTemp || 10;
                   const height = ((data.celsius - minTemp) / range) * 80 + 10;
-
+                  
                   return (
                     <div
                       key={data.id || index}
@@ -537,9 +461,7 @@ const TemperatureDashboard = () => {
             </div>
             <div>
               <h3 className="text-xl font-bold text-gray-800">Data Cleanup</h3>
-              <p className="text-sm text-gray-500">
-                Hapus data historis lama secara manual
-              </p>
+              <p className="text-sm text-gray-500">Hapus data historis lama secara manual</p>
             </div>
           </div>
 
@@ -549,12 +471,10 @@ const TemperatureDashboard = () => {
                 <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
                 <div className="text-sm">
                   <p className="text-gray-700">
-                    <strong>Data tertua:</strong>{' '}
-                    {formatDate(stats.oldestDate.getTime())}
+                    <strong>Data tertua:</strong> {formatDate(stats.oldestDate.getTime())}
                   </p>
                   <p className="text-gray-700 mt-1">
-                    <strong>Data terbaru:</strong>{' '}
-                    {formatDate(stats.newestDate.getTime())}
+                    <strong>Data terbaru:</strong> {formatDate(stats.newestDate.getTime())}
                   </p>
                 </div>
               </div>
@@ -575,11 +495,7 @@ const TemperatureDashboard = () => {
                 placeholder="7"
               />
               <p className="text-xs text-gray-500 mt-2">
-                Data sebelum{' '}
-                {new Date(
-                  Date.now() - cleanupDays * 24 * 60 * 60 * 1000
-                ).toLocaleDateString('id-ID')}{' '}
-                akan dihapus
+                Data sebelum {new Date(Date.now() - cleanupDays * 24 * 60 * 60 * 1000).toLocaleDateString('id-ID')} akan dihapus
               </p>
             </div>
 
@@ -605,18 +521,14 @@ const TemperatureDashboard = () => {
           </div>
 
           {cleanupResult && (
-            <div
-              className={`mt-6 p-4 rounded-xl ${
-                cleanupResult.success
-                  ? 'bg-green-50 border border-green-200'
-                  : 'bg-red-50 border border-red-200'
-              }`}
-            >
-              <p
-                className={`text-sm font-medium ${
-                  cleanupResult.success ? 'text-green-800' : 'text-red-800'
-                }`}
-              >
+            <div className={`mt-6 p-4 rounded-xl ${
+              cleanupResult.success 
+                ? 'bg-green-50 border border-green-200' 
+                : 'bg-red-50 border border-red-200'
+            }`}>
+              <p className={`text-sm font-medium ${
+                cleanupResult.success ? 'text-green-800' : 'text-red-800'
+              }`}>
                 {cleanupResult.message}
               </p>
             </div>
