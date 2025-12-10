@@ -9,7 +9,7 @@ const TemperatureDashboard = () => {
   const [historyData, setHistoryData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [cleanupLoading, setCleanupLoading] = useState(false);
-  const [cleanupDays, setCleanupDays] = useState(7);
+  const [cleanupCount, setCleanupCount] = useState(50); // ✅ CHANGED: from days to count
   const [stats, setStats] = useState({ total: 0, oldestDate: null, newestDate: null });
   const [cleanupResult, setCleanupResult] = useState(null);
 
@@ -21,7 +21,6 @@ const TemperatureDashboard = () => {
 
   const initFirebase = async () => {
     try {
-      // Import Firebase SDK dari npm
       const { initializeApp } = await import('firebase/app');
       const { getDatabase, ref, onValue } = await import('firebase/database');
       const { getFirestore, collection, query, orderBy, limit, getDocs } = await import('firebase/firestore');
@@ -37,7 +36,6 @@ const TemperatureDashboard = () => {
       const rtdb = getDatabase(app);
       const firestore = getFirestore(app);
 
-      // Store di window untuk akses global
       window.firebaseInstances = {
         rtdb,
         firestore,
@@ -50,7 +48,6 @@ const TemperatureDashboard = () => {
         getDocs
       };
 
-      // initial load
       loadData();
     } catch (error) {
       console.error('Firebase init error:', error);
@@ -67,14 +64,10 @@ const TemperatureDashboard = () => {
       // Load latest from RTDB
       try {
         const rtdbRef = ref(rtdb, 'sensorData/temperature');
-        // onValue will keep listening; we only set the latestData
         onValue(rtdbRef, (snapshot) => {
           const data = snapshot.val();
-          // data structure may vary; ensure it has celsius/fahrenheit/timestamp
           if (data) {
-            // jika data adalah object child list, attempt ambil last entry
             if (typeof data === 'object' && !Array.isArray(data)) {
-              // cari properti terakhir (by key ordering) — fallback sederhana
               const keys = Object.keys(data);
               const lastKey = keys[keys.length - 1];
               const last = data[lastKey];
@@ -85,7 +78,6 @@ const TemperatureDashboard = () => {
                   timestamp: Number(last.timestamp) || Date.now()
                 });
               } else {
-                // default assign if data itself punya fields
                 setLatestData({
                   celsius: Number(data.celsius),
                   fahrenheit: Number(data.fahrenheit),
@@ -114,11 +106,9 @@ const TemperatureDashboard = () => {
         const history = [];
         snapshot.forEach((doc) => {
           const data = doc.data();
-          // Validate fields, convert to numbers when possible
           const ts = Number(data?.timestamp);
           const c = Number(data?.celsius);
           const f = Number(data?.fahrenheit);
-          // only push entries that have at least one numeric temperature or valid timestamp
           if ((!Number.isNaN(ts) && ts > 0) && (Number.isFinite(c) || Number.isFinite(f))) {
             history.push({
               id: doc.id,
@@ -129,7 +119,6 @@ const TemperatureDashboard = () => {
           }
         });
 
-        // snapshot was ordered desc, we reverse to ascending for plotting left-to-right time
         const sortedHistory = history.reverse();
         setHistoryData(sortedHistory);
 
@@ -153,19 +142,18 @@ const TemperatureDashboard = () => {
     }
   };
 
+  // ✅ NEW: Cleanup by count instead of days
   const handleCleanup = async () => {
-    if (!confirm(`Hapus data lebih dari ${cleanupDays} hari yang lalu?`)) return;
+    if (!confirm(`Hapus ${cleanupCount} data tertua?`)) return;
 
     setCleanupLoading(true);
     setCleanupResult(null);
 
     try {
-      const olderThan = cleanupDays * 24 * 60 * 60 * 1000;
-
       const response = await fetch('/api/cleanup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ olderThan })
+        body: JSON.stringify({ deleteCount: cleanupCount }) // ✅ CHANGED: send count instead of olderThan
       });
 
       const result = await response.json();
@@ -208,12 +196,10 @@ const TemperatureDashboard = () => {
     });
   };
 
-  // Normalize chart data and filter invalid entries
   const chartData = historyData
     .map((item) => {
       const c = Number(item.celsius);
       const f = Number(item.fahrenheit);
-      // jika keduanya NaN/undefined, skip
       if (!Number.isFinite(c) && !Number.isFinite(f)) return null;
       return {
         time: formatChartDate(item.timestamp),
@@ -224,11 +210,9 @@ const TemperatureDashboard = () => {
     })
     .filter(Boolean);
 
-  // Safe tooltip component
   const CustomTooltip = ({ active, payload }) => {
     if (!active || !payload || !payload.length) return null;
 
-    // prefer payload[0].payload which is the original data point
     const point = payload[0] && payload[0].payload ? payload[0].payload : null;
     if (!point) return null;
 
@@ -272,6 +256,7 @@ const TemperatureDashboard = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
+        {/* Header */}
         <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -292,6 +277,7 @@ const TemperatureDashboard = () => {
           </div>
         </div>
 
+        {/* Temperature Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
           <div className="bg-gradient-to-br from-orange-500 to-red-500 rounded-2xl shadow-xl p-6 text-white">
             <div className="flex items-center justify-between mb-4">
@@ -365,6 +351,7 @@ const TemperatureDashboard = () => {
           </div>
         </div>
 
+        {/* Line Chart */}
         <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
           <div className="flex items-center gap-2 mb-6">
             <Activity className="w-6 h-6 text-blue-500" />
@@ -436,8 +423,184 @@ const TemperatureDashboard = () => {
           )}
         </div>
 
-        {/* rest of UI unchanged... (kept same as original) */}
+        {/* Area Chart */}
+        <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
+          <div className="flex items-center gap-2 mb-6">
+            <TrendingUp className="w-6 h-6 text-purple-500" />
+            <h3 className="text-xl font-bold text-gray-800">
+              Temperature Trend (Area Chart)
+            </h3>
+          </div>
+          
+          {chartData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <AreaChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorCelsius" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#f97316" stopOpacity={0.8}/>
+                    <stop offset="95%" stopColor="#f97316" stopOpacity={0.1}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                <XAxis 
+                  dataKey="time" 
+                  stroke="#666"
+                  style={{ fontSize: '12px' }}
+                  interval={Math.floor(chartData.length / 10)}
+                />
+                <YAxis 
+                  stroke="#666"
+                  style={{ fontSize: '12px' }}
+                  label={{ value: 'Temperature (°C)', angle: -90, position: 'insideLeft' }}
+                />
+                <Tooltip content={<CustomTooltip />} />
+                <Area 
+                  type="monotone" 
+                  dataKey="celsius" 
+                  stroke="#f97316" 
+                  fillOpacity={1} 
+                  fill="url(#colorCelsius)"
+                  name="Temperature (°C)"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-72 flex items-center justify-center text-gray-400">
+              <p>No data available</p>
+            </div>
+          )}
+        </div>
 
+        {/* Bar Chart */}
+        <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
+          <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+            <Clock className="w-5 h-5 text-blue-500" />
+            Recent Temperature Readings (Last 30)
+          </h3>
+          {historyData.length > 0 ? (
+            <>
+              <div className="h-64 flex items-end justify-between gap-1">
+                {historyData.slice(-30).map((data, index) => {
+                  const minTemp = Math.min(...historyData.map(d => d.celsius));
+                  const maxTemp = Math.max(...historyData.map(d => d.celsius));
+                  const range = maxTemp - minTemp || 10;
+                  const height = ((data.celsius - minTemp) / range) * 80 + 10;
+                  
+                  return (
+                    <div
+                      key={data.id || index}
+                      className="flex-1 bg-gradient-to-t from-blue-500 to-indigo-500 rounded-t-lg hover:from-blue-600 hover:to-indigo-600 transition-all cursor-pointer group relative"
+                      style={{ height: `${height}%` }}
+                    >
+                      <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-10">
+                        {data.celsius.toFixed(1)}°C
+                        <div className="text-gray-300 text-[10px] mt-0.5">
+                          {formatChartDate(data.timestamp)}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex justify-between text-xs text-gray-500 mt-2">
+                <span>Oldest</span>
+                <span>Latest</span>
+              </div>
+            </>
+          ) : (
+            <div className="h-64 flex items-center justify-center text-gray-400">
+              <p>Waiting for data...</p>
+            </div>
+          )}
+        </div>
+
+        {/* ✅ DATA CLEANUP SECTION - BY COUNT */}
+        <div className="bg-white rounded-2xl shadow-xl p-6">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="bg-red-100 p-3 rounded-xl">
+              <Database className="w-6 h-6 text-red-600" />
+            </div>
+            <div>
+              <h3 className="text-xl font-bold text-gray-800">Data Cleanup</h3>
+              <p className="text-sm text-gray-500">Hapus data tertua berdasarkan jumlah</p>
+            </div>
+          </div>
+
+          {stats.oldestDate && (
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                <div className="text-sm">
+                  <p className="text-gray-700">
+                    <strong>Total data:</strong> {stats.total} records
+                  </p>
+                  <p className="text-gray-700 mt-1">
+                    <strong>Data tertua:</strong> {formatDate(stats.oldestDate.getTime())}
+                  </p>
+                  <p className="text-gray-700 mt-1">
+                    <strong>Data terbaru:</strong> {formatDate(stats.newestDate.getTime())}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Jumlah data tertua yang akan dihapus:
+              </label>
+              <input
+                type="number"
+                value={cleanupCount}
+                onChange={(e) => setCleanupCount(parseInt(e.target.value) || 1)}
+                min="1"
+                max={stats.total}
+                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                placeholder="50"
+              />
+              <p className="text-xs text-gray-500 mt-2">
+                Akan menghapus {cleanupCount} data tertua dari total {stats.total} data
+              </p>
+            </div>
+
+            <div className="flex items-end">
+              <button
+                onClick={handleCleanup}
+                disabled={cleanupLoading || stats.total === 0}
+                className="w-full bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold py-3 px-6 rounded-xl shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {cleanupLoading ? (
+                  <>
+                    <RefreshCw className="w-5 h-5 animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-5 h-5" />
+                    Hapus {cleanupCount} Data Tertua
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {cleanupResult && (
+            <div className={`mt-6 p-4 rounded-xl ${
+              cleanupResult.success 
+                ? 'bg-green-50 border border-green-200' 
+                : 'bg-red-50 border border-red-200'
+            }`}>
+              <p className={`text-sm font-medium ${
+                cleanupResult.success ? 'text-green-800' : 'text-red-800'
+              }`}>
+                {cleanupResult.message}
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
         <div className="text-center mt-8 text-gray-500 text-sm">
           <p>Dashboard monitoring suhu real-time dengan DS18B20 sensor</p>
           <p className="mt-1">Data disimpan di Firebase RTDB & Firestore</p>
