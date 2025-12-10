@@ -1,119 +1,139 @@
 // app/api/cleanup/route.js
-import { NextResponse } from "next/server";
-import { initializeApp, getApps, cert } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
+import { initializeApp, getApps, cert } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
+import { NextResponse } from 'next/server';
 
-console.info("🟦 /api/cleanup route loaded");
-
-// Firebase Admin Initialization
 if (!getApps().length) {
   try {
-    console.info("🟢 Firebase Admin initializing...");
-    
-    // Decode Base64 Firebase private key
-    const decodedKey = Buffer.from(
-      process.env.FIREBASE_PRIVATE_KEY_BASE64 || "",
-      "base64"
-    ).toString("utf8");
+    const projectId = process.env.FIREBASE_PROJECT_ID;
+    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+    const privateKey = process.env.FIREBASE_PRIVATE_KEY;
 
+    if (!projectId || !clientEmail || !privateKey) {
+      console.error('❌ Missing Firebase environment variables!');
+      throw new Error('Missing Firebase credentials');
+    }
+
+    console.log('🔑 Initializing Firebase Admin...');
     initializeApp({
       credential: cert({
-        projectId: process.env.FIREBASE_PROJECT_ID,
-        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        privateKey: decodedKey,
+        projectId: projectId,
+        clientEmail: clientEmail,
+        privateKey: privateKey.replace(/\\n/g, '\n'),
       }),
     });
     
-    console.info("🟢 Firebase Admin initialized");
-  } catch (err) {
-    console.error("❌ Firebase Admin init error:", err);
+    console.log('✅ Firebase Admin initialized');
+  } catch (error) {
+    console.error('❌ Firebase Admin init error:', error);
   }
 }
 
 export async function POST(request) {
-  console.info("🟧 /api/cleanup POST hit");
-
-  let body = {};
   try {
-    body = await request.json();
-  } catch (err) {
-    console.warn("⚠ Tidak ada JSON body");
-    return NextResponse.json(
-      { success: false, error: "Invalid JSON body" },
-      { status: 400 }
-    );
-  }
+    if (getApps().length === 0) {
+      return NextResponse.json(
+        { 
+          success: false,
+          error: 'Firebase Admin tidak terinisialisasi'
+        },
+        { status: 500 }
+      );
+    }
 
-  console.info("🟨 Cleanup request body:", body);
+    const { deleteCount } = await request.json();
+    
+    if (!deleteCount || deleteCount < 1) {
+      return NextResponse.json(
+        { 
+          success: false,
+          error: 'Parameter deleteCount harus lebih dari 0' 
+        },
+        { status: 400 }
+      );
+    }
 
-  const deleteCount = body.deleteCount || 0;
-
-  if (deleteCount < 1) {
-    console.warn("⚠ deleteCount harus > 0");
-    return NextResponse.json(
-      { success: false, error: "deleteCount harus lebih dari 0" },
-      { status: 400 }
-    );
-  }
-
-  console.info(`🔍 Cleanup requested: deleteCount=${deleteCount}`);
-
-  try {
     const db = getFirestore();
-    console.info("🟦 Firestore connected");
+    
+    console.log('🔍 Attempting cleanup with deleteCount:', deleteCount);
 
-    // ✅ QUERY COLLECTION: Temperature_History
-    // Path: /Temperature_History/{documentId}
-    const snapshot = await db
-      .collection("Temperature_History")
-      .orderBy("timestamp", "asc")
-      .limit(deleteCount)
-      .get();
+    // ✅ TRY BOTH PATHS (prioritas path dengan subcollection)
+    let snapshot;
+    let queryPath = '';
 
-    console.info(`📘 Found ${snapshot.size} documents to delete`);
+    // Try path 1: sensorData/data/history (subcollection)
+    try {
+      console.log('📍 Trying path: sensorData/data/history');
+      const historyRef = db.collection('sensorData').doc('data').collection('history');
+      snapshot = await historyRef.orderBy('timestamp', 'asc').limit(deleteCount).get();
+      queryPath = 'sensorData/data/history';
+      console.log(`📊 Found ${snapshot.size} documents in ${queryPath}`);
+    } catch (error) {
+      console.log('⚠️ Path 1 failed:', error.message);
+      
+      // Try path 2: collection group 'history'
+      try {
+        console.log('📍 Trying collection group: history');
+        snapshot = await db.collectionGroup('history').orderBy('timestamp', 'asc').limit(deleteCount).get();
+        queryPath = 'collection group: history';
+        console.log(`📊 Found ${snapshot.size} documents in ${queryPath}`);
+      } catch (error2) {
+        console.error('❌ Both paths failed');
+        return NextResponse.json(
+          { 
+            success: false,
+            error: 'Query failed',
+            details: error2.message,
+            hint: 'Periksa Firestore Index dan struktur data'
+          },
+          { status: 500 }
+        );
+      }
+    }
 
     if (snapshot.empty) {
-      console.info("ℹ️ No documents found");
-      return NextResponse.json({
-        success: true,
+      console.log('ℹ️ No documents found to delete');
+      return NextResponse.json({ 
+        success: true, 
         deleted: 0,
-        message: "Tidak ada data yang ditemukan",
+        message: 'Tidak ada data yang ditemukan'
       });
     }
 
-    // Delete in batch
+    // Delete documents
     const batch = db.batch();
-    snapshot.forEach((doc) => {
-      console.info(`🗑️ Deleting doc ID: ${doc.id}, timestamp: ${doc.data().timestamp}`);
+    let deletedCount = 0;
+
+    snapshot.docs.forEach((doc) => {
+      console.log(`🗑️ Deleting doc: ${doc.id}, timestamp: ${doc.data().timestamp}`);
       batch.delete(doc.ref);
+      deletedCount++;
     });
 
     await batch.commit();
-    console.info(`🟢 Cleanup success: deleted ${snapshot.size} documents`);
+    console.log('✅ Successfully deleted', deletedCount, 'documents from', queryPath);
 
-    return NextResponse.json({
-      success: true,
-      deleted: snapshot.size,
-      message: `Berhasil menghapus ${snapshot.size} data tertua`,
+    return NextResponse.json({ 
+      success: true, 
+      deleted: deletedCount,
+      message: `Berhasil menghapus ${deletedCount} data tertua`,
+      queryPath: queryPath
     });
 
-  } catch (err) {
-    console.error("❌ Cleanup error:", err);
+  } catch (error) {
+    console.error('❌ Cleanup error:', error);
     
-    // Detailed error response
-    let errorHint = "Periksa koneksi Firebase";
-    if (err.message.includes("index")) {
-      errorHint = "Buat Firestore Index untuk orderBy timestamp";
-    } else if (err.code === "permission-denied") {
-      errorHint = "Periksa Firebase Security Rules";
-    }
-
     return NextResponse.json(
-      {
+      { 
         success: false,
-        error: err.message,
-        code: err.code || "UNKNOWN",
-        hint: errorHint,
+        error: 'Cleanup gagal',
+        details: error.message,
+        code: error.code || 'UNKNOWN',
+        hint: error.code === 'permission-denied' 
+          ? 'Periksa Firebase Security Rules' 
+          : error.message.includes('index')
+          ? 'Buat Firestore Index untuk query orderBy timestamp'
+          : 'Periksa struktur data Firestore'
       },
       { status: 500 }
     );
