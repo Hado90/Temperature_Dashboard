@@ -3,13 +3,10 @@ import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { NextResponse } from 'next/server';
 
-// Initialize Firebase Admin
 if (!getApps().length) {
   try {
-    // Validasi environment variables
     if (!process.env.FIREBASE_PROJECT_ID || !process.env.FIREBASE_CLIENT_EMAIL || !process.env.FIREBASE_PRIVATE_KEY) {
       console.error('❌ Missing Firebase environment variables!');
-      console.error('Required: FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY');
     }
 
     initializeApp({
@@ -19,7 +16,7 @@ if (!getApps().length) {
         privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
       }),
     });
-    console.log('✅ Firebase Admin initialized successfully');
+    console.log('✅ Firebase Admin initialized');
   } catch (error) {
     console.error('❌ Firebase Admin init error:', error);
   }
@@ -27,37 +24,35 @@ if (!getApps().length) {
 
 export async function POST(request) {
   try {
-    const { olderThan } = await request.json();
+    const { deleteCount } = await request.json(); // ✅ CHANGED: accept deleteCount
     
-    if (!olderThan) {
+    if (!deleteCount || deleteCount < 1) {
       return NextResponse.json(
         { 
           success: false,
-          error: 'Parameter olderThan diperlukan' 
+          error: 'Parameter deleteCount harus lebih dari 0' 
         },
         { status: 400 }
       );
     }
 
-    // Validasi Firebase Admin
     if (getApps().length === 0) {
       return NextResponse.json(
         { 
           success: false,
-          error: 'Firebase Admin tidak terinisialisasi. Cek environment variables.' 
+          error: 'Firebase Admin tidak terinisialisasi' 
         },
         { status: 500 }
       );
     }
 
     const db = getFirestore();
-    const cutoffTime = Date.now() - olderThan;
     
-    console.log('🔍 Searching for data older than:', new Date(cutoffTime).toISOString());
+    console.log('🔍 Fetching oldest', deleteCount, 'documents...');
 
-    // Query documents older than cutoff
+    // ✅ Query oldest documents by timestamp, limit to deleteCount
     const historyRef = db.collection('sensorData').doc('data').collection('history');
-    const snapshot = await historyRef.where('timestamp', '<', cutoffTime).get();
+    const snapshot = await historyRef.orderBy('timestamp', 'asc').limit(deleteCount).get();
 
     console.log('📊 Found documents:', snapshot.size);
 
@@ -65,42 +60,37 @@ export async function POST(request) {
       return NextResponse.json({ 
         success: true, 
         deleted: 0,
-        message: 'Tidak ada data lama yang ditemukan'
+        message: 'Tidak ada data yang ditemukan'
       });
     }
 
-    // Delete in batches (Firestore limit: 500 per batch)
+    // Delete in batch
     const batch = db.batch();
-    let deleteCount = 0;
+    let deletedCount = 0;
 
     snapshot.docs.forEach((doc) => {
       batch.delete(doc.ref);
-      deleteCount++;
+      deletedCount++;
     });
 
     await batch.commit();
-    console.log('✅ Successfully deleted', deleteCount, 'documents');
+    console.log('✅ Successfully deleted', deletedCount, 'documents');
 
     return NextResponse.json({ 
       success: true, 
-      deleted: deleteCount,
-      cutoffTime: new Date(cutoffTime).toISOString(),
-      message: `Berhasil menghapus ${deleteCount} data`
+      deleted: deletedCount,
+      message: `Berhasil menghapus ${deletedCount} data tertua`
     });
 
   } catch (error) {
     console.error('❌ Cleanup error:', error);
     
-    // Detailed error response
     return NextResponse.json(
       { 
         success: false,
         error: 'Cleanup gagal',
         details: error.message,
-        code: error.code || 'UNKNOWN',
-        hint: error.code === 'permission-denied' 
-          ? 'Periksa Firebase Security Rules' 
-          : 'Periksa environment variables dan koneksi Firebase'
+        code: error.code || 'UNKNOWN'
       },
       { status: 500 }
     );
