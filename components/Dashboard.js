@@ -4,12 +4,55 @@ import React, { useState, useEffect } from 'react';
 import { Thermometer, Trash2, RefreshCw, Database, Clock, TrendingUp, AlertCircle, Activity } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Area, AreaChart } from 'recharts';
 
+/**
+ * UTILS
+ * Robust timestamp parser:
+ * - handles number (ms)
+ * - string digits (seconds or ms)
+ * - REST-style Firestore field: { integerValue: "..." } or { doubleValue: "..." }
+ * - Firestore Timestamp: { seconds, nanoseconds }
+ * returns milliseconds (number) or null
+ */
+function parseTimestamp(raw) {
+  if (raw == null) return null;
+
+  // Already a number (assume milliseconds)
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+
+  // String of digits (could be seconds or milliseconds)
+  if (typeof raw === 'string' && /^[0-9]+$/.test(raw)) {
+    // if length >= 13 assume milliseconds, else seconds
+    return raw.length >= 13 ? parseInt(raw, 10) : parseInt(raw, 10) * 1000;
+  }
+
+  if (typeof raw === 'object') {
+    // REST-style integerValue/doubleValue
+    if (raw.integerValue !== undefined) {
+      const s = String(raw.integerValue);
+      const n = parseInt(s, 10);
+      return s.length >= 13 ? n : n * 1000;
+    }
+    if (raw.doubleValue !== undefined) {
+      const n = Number(raw.doubleValue);
+      return Number.isFinite(n) ? n : null;
+    }
+    // Firestore Timestamp { seconds, nanoseconds }
+    if (raw.seconds !== undefined) {
+      const sec = Number(raw.seconds);
+      const ns = Number(raw.nanoseconds) || 0;
+      return sec * 1000 + Math.floor(ns / 1e6);
+    }
+  }
+
+  return null;
+}
+
 const TemperatureDashboard = () => {
   const [latestData, setLatestData] = useState(null);
   const [historyData, setHistoryData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [cleanupLoading, setCleanupLoading] = useState(false);
-  const [cleanupCount, setCleanupCount] = useState(50); // ✅ CHANGED: from days to count
+  const [cleanupCount, setCleanupCount] = useState(50); // default delete count
   const [stats, setStats] = useState({ total: 0, oldestDate: null, newestDate: null });
   const [cleanupResult, setCleanupResult] = useState(null);
 
@@ -48,6 +91,7 @@ const TemperatureDashboard = () => {
         getDocs
       };
 
+      // initial load
       loadData();
     } catch (error) {
       console.error('Firebase init error:', error);
@@ -61,43 +105,52 @@ const TemperatureDashboard = () => {
     try {
       const { rtdb, firestore, ref, onValue, collection, query, orderBy, limit, getDocs } = window.firebaseInstances;
 
-      // Load latest from RTDB
+      // ---------------------------
+      // READ LATEST FROM RTDB
+      // ---------------------------
       try {
         const rtdbRef = ref(rtdb, 'sensorData/temperature');
         onValue(rtdbRef, (snapshot) => {
           const data = snapshot.val();
-          if (data) {
-            if (typeof data === 'object' && !Array.isArray(data)) {
-              const keys = Object.keys(data);
-              const lastKey = keys[keys.length - 1];
-              const last = data[lastKey];
-              if (last && (last.celsius !== undefined || last.fahrenheit !== undefined)) {
-                setLatestData({
-                  celsius: Number(last.celsius),
-                  fahrenheit: Number(last.fahrenheit),
-                  timestamp: Number(last.timestamp) || Date.now()
-                });
-              } else {
-                setLatestData({
-                  celsius: Number(data.celsius),
-                  fahrenheit: Number(data.fahrenheit),
-                  timestamp: Number(data.timestamp) || Date.now()
-                });
-              }
+          if (!data) return;
+
+          // If RTDB returned an object (child list), try to pick last entry
+          if (typeof data === 'object' && !Array.isArray(data)) {
+            const keys = Object.keys(data);
+            const lastKey = keys[keys.length - 1];
+            const last = data[lastKey];
+            const ts = parseTimestamp(last?.timestamp ?? last?.time ?? null) || Date.now();
+
+            if (last && (last.celsius !== undefined || last.fahrenheit !== undefined)) {
+              setLatestData({
+                celsius: Number(last.celsius),
+                fahrenheit: Number(last.fahrenheit),
+                timestamp: ts
+              });
             } else {
+              // fallback when data is a flat object with fields
               setLatestData({
                 celsius: Number(data.celsius),
                 fahrenheit: Number(data.fahrenheit),
-                timestamp: Number(data.timestamp) || Date.now()
+                timestamp: parseTimestamp(data?.timestamp) || Date.now()
               });
             }
+          } else {
+            // direct values
+            setLatestData({
+              celsius: Number(data.celsius),
+              fahrenheit: Number(data.fahrenheit),
+              timestamp: parseTimestamp(data?.timestamp) || Date.now()
+            });
           }
         });
       } catch (err) {
         console.warn('RTDB read error:', err);
       }
 
-      // Load history from Firestore
+      // ---------------------------
+      // READ HISTORY FROM FIRESTORE
+      // ---------------------------
       try {
         const historyRef = collection(firestore, 'sensorData', 'data', 'history');
         const q = query(historyRef, orderBy('timestamp', 'desc'), limit(100));
@@ -106,10 +159,13 @@ const TemperatureDashboard = () => {
         const history = [];
         snapshot.forEach((doc) => {
           const data = doc.data();
-          const ts = Number(data?.timestamp);
+          // normalize timestamp robustly
+          const ts = parseTimestamp(data?.timestamp);
           const c = Number(data?.celsius);
           const f = Number(data?.fahrenheit);
-          if ((!Number.isNaN(ts) && ts > 0) && (Number.isFinite(c) || Number.isFinite(f))) {
+
+          // push only valid entries
+          if (ts && (Number.isFinite(c) || Number.isFinite(f))) {
             history.push({
               id: doc.id,
               timestamp: ts,
@@ -142,7 +198,7 @@ const TemperatureDashboard = () => {
     }
   };
 
-  // ✅ NEW: Cleanup by count instead of days
+  // CLEANUP: send deleteCount to server
   const handleCleanup = async () => {
     if (!confirm(`Hapus ${cleanupCount} data tertua?`)) return;
 
@@ -153,7 +209,7 @@ const TemperatureDashboard = () => {
       const response = await fetch('/api/cleanup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deleteCount: cleanupCount }) // ✅ CHANGED: send count instead of olderThan
+        body: JSON.stringify({ deleteCount: cleanupCount })
       });
 
       const result = await response.json();
@@ -166,7 +222,7 @@ const TemperatureDashboard = () => {
         });
         setTimeout(() => loadData(), 1000);
       } else {
-        throw new Error(result.error);
+        throw new Error(result.error || 'Unknown');
       }
     } catch (error) {
       setCleanupResult({
@@ -178,8 +234,11 @@ const TemperatureDashboard = () => {
     }
   };
 
+  // FORCE timezone display to Asia/Jakarta (WIB)
   const formatDate = (timestamp) => {
+    if (!timestamp) return '—';
     return new Date(timestamp).toLocaleString('id-ID', {
+      timeZone: 'Asia/Jakarta',
       day: '2-digit',
       month: 'short',
       year: 'numeric',
@@ -189,13 +248,16 @@ const TemperatureDashboard = () => {
   };
 
   const formatChartDate = (timestamp) => {
+    if (!timestamp) return '—';
     const date = new Date(timestamp);
     return date.toLocaleTimeString('id-ID', {
+      timeZone: 'Asia/Jakarta',
       hour: '2-digit',
       minute: '2-digit'
     });
   };
 
+  // Normalize data for charts
   const chartData = historyData
     .map((item) => {
       const c = Number(item.celsius);
@@ -210,6 +272,7 @@ const TemperatureDashboard = () => {
     })
     .filter(Boolean);
 
+  // Safe tooltip
   const CustomTooltip = ({ active, payload }) => {
     if (!active || !payload || !payload.length) return null;
 
@@ -253,6 +316,7 @@ const TemperatureDashboard = () => {
     );
   }
 
+  // ========== RENDER ==========
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
