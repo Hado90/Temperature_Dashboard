@@ -1,123 +1,75 @@
-// app/api/cleanup/route.js
-import { initializeApp, getApps, cert } from 'firebase-admin/app';
-import { getFirestore, Timestamp } from 'firebase-admin/firestore';
-import { NextResponse } from 'next/server';
+import { NextResponse } from "next/server";
+import { initializeApp, getApps, cert } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
 
-console.log("🟦 /api/cleanup route loaded");
+// Log saat file ini pertama kali dimuat
+console.info("🟦 /api/cleanup route loaded");
 
-// Initialize Firebase Admin once
+// Firebase Admin Initialization
 if (!getApps().length) {
   try {
-    if (!process.env.FIREBASE_PROJECT_ID || !process.env.FIREBASE_CLIENT_EMAIL || !process.env.FIREBASE_PRIVATE_KEY) {
-      console.error('❌ Missing Firebase env vars (PROJECT_ID / CLIENT_EMAIL / PRIVATE_KEY)');
-    }
+    console.info("🟢 Firebase Admin initializing...");
+
+    // Decode Base64 Firebase private key dari Environment Variables Vercel
+    const decodedKey = Buffer.from(
+      process.env.FIREBASE_PRIVATE_KEY_BASE64 || "",
+      "base64"
+    ).toString("utf8");
 
     initializeApp({
       credential: cert({
         projectId: process.env.FIREBASE_PROJECT_ID,
         clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        // handle escaped newlines
-        privateKey: process.env.FIREBASE_PRIVATE_KEY ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n') : undefined,
+        privateKey: decodedKey,
       }),
     });
-    console.log("🟢 Firebase Admin initialized");
+
+    console.info("🟢 Firebase Admin initialized using BASE64 key");
+
   } catch (err) {
     console.error("❌ Firebase Admin init error:", err);
   }
 }
 
-// helper - delete docs in chunks of maxBatch
-async function deleteDocsInBatches(docs, db, maxBatch = 500) {
-  let deleted = 0;
-  for (let i = 0; i < docs.length; i += maxBatch) {
-    const chunk = docs.slice(i, i + maxBatch);
-    const batch = db.batch();
-    chunk.forEach((d) => batch.delete(d.ref));
-    await batch.commit();
-    deleted += chunk.length;
-    console.log(`Committed batch of ${chunk.length} deletes (total ${deleted})`);
-  }
-  return deleted;
-}
-
 export async function POST(request) {
-  console.log("🟧 /api/cleanup POST hit");
+  console.info("🟧 /api/cleanup POST hit");
 
-  let body = null;
+  let body = {};
   try {
     body = await request.json();
-    console.log("🟨 Cleanup request body:", body);
-  } catch (e) {
-    console.error("❌ JSON parse error:", e);
-    return NextResponse.json({ success: false, error: 'Invalid JSON' }, { status: 400 });
+  } catch (err) {
+    console.warn("⚠ Tidak ada JSON body");
   }
 
+  console.info("🟨 Cleanup request body:", body);
+
+  const deleteCount = body.deleteCount || 0;
+  console.info(`Cleanup requested: deleteCount=${deleteCount}`);
+
   try {
-    // ensure admin initialized
-    if (getApps().length === 0) {
-      console.error('❌ Firebase Admin not initialized');
-      return NextResponse.json({ success: false, error: 'Firebase Admin not initialized' }, { status: 500 });
-    }
-
     const db = getFirestore();
-    console.log("🟦 Firestore initialized");
+    console.info("🟦 Firestore connected");
 
-    const { deleteCount, olderThan } = body || {};
+    const snapshot = await db
+      .collection("Temperature_History")
+      .orderBy("timestamp", "asc")
+      .limit(deleteCount)
+      .get();
 
-    // Mode A: delete by count (dashboard sends deleteCount)
-    if (deleteCount && typeof deleteCount === 'number' && deleteCount > 0) {
-      console.log(`Cleanup requested: deleteCount=${deleteCount}`);
-      const historyRef = db.collection('sensorData').doc('data').collection('history');
-      // order ascending (oldest first)
-      const snapshot = await historyRef.orderBy('timestamp', 'asc').limit(deleteCount).get();
-      console.log('📄 Documents found:', snapshot.size);
+    console.info(`📘 Found ${snapshot.size} documents to delete`);
 
-      if (snapshot.empty) {
-        return NextResponse.json({ success: true, deleted: 0, message: 'No documents to delete' });
-      }
+    const batch = db.batch();
+    snapshot.forEach((doc) => batch.delete(doc.ref));
+    await batch.commit();
 
-      const docs = snapshot.docs;
-      const deleted = await deleteDocsInBatches(docs, db, 500);
-      console.log('🟢 Deleted', deleted, 'documents');
-      return NextResponse.json({ success: true, deleted, message: `Deleted ${deleted} docs` });
-    }
+    console.info("🟢 Cleanup success");
 
-    // Mode B: delete by olderThan (milliseconds)
-    if (olderThan && typeof olderThan === 'number' && olderThan > 0) {
-      const cutoffMs = Date.now() - olderThan;
-      console.log('Cleanup requested: olderThan(ms)=', olderThan, 'cutoff=', new Date(cutoffMs).toISOString());
-      const historyRef = db.collection('sensorData').doc('data').collection('history');
-
-      // first try numeric timestamp
-      let snapshot = await historyRef.where('timestamp', '<', cutoffMs).get();
-
-      // if none found, try Firestore Timestamp
-      if (snapshot.empty) {
-        try {
-          const tsCutoff = Timestamp.fromMillis(cutoffMs);
-          console.log('Trying Timestamp.fromMillis query');
-          snapshot = await historyRef.where('timestamp', '<', tsCutoff).get();
-        } catch (err) {
-          console.warn('Timestamp.fromMillis query failed:', err.message || err);
-        }
-      }
-
-      console.log('📄 Documents found:', snapshot.size);
-      if (snapshot.empty) {
-        return NextResponse.json({ success: true, deleted: 0, message: 'No documents older than cutoff' });
-      }
-
-      const docs = snapshot.docs;
-      const deleted = await deleteDocsInBatches(docs, db, 500);
-      console.log('🟢 Deleted', deleted, 'documents');
-      return NextResponse.json({ success: true, deleted, message: `Deleted ${deleted} docs` });
-    }
-
-    // neither param present
-    console.log('⚠️ Neither deleteCount nor olderThan provided in body');
-    return NextResponse.json({ success: false, error: 'Provide deleteCount (number) or olderThan (ms)' }, { status: 400 });
-  } catch (error) {
-    console.error('❌ Cleanup error:', error);
-    return NextResponse.json({ success: false, error: 'Cleanup failed', details: String(error) }, { status: 500 });
+    return NextResponse.json({ success: true, deleted: snapshot.size });
+  } catch (err) {
+    console.error("❌ Cleanup error:", err);
+    return NextResponse.json(
+      { success: false, error: err.message },
+      { status: 500 }
+    );
   }
 }
