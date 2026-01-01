@@ -1,32 +1,19 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Thermometer, Trash2, RefreshCw, Database, Clock, TrendingUp, AlertCircle, Activity } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Area, AreaChart } from 'recharts';
+import { Battery, Trash2, RefreshCw, Database, Zap, Thermometer, Activity, AlertCircle, TrendingUp } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 /**
- * UTILS
- * Robust timestamp parser:
- * - handles number (ms)
- * - string digits (seconds or ms)
- * - REST-style Firestore field: { integerValue: "..." } or { doubleValue: "..." }
- * - Firestore Timestamp: { seconds, nanoseconds }
- * returns milliseconds (number) or null
+ * Robust timestamp parser
  */
 function parseTimestamp(raw) {
   if (raw == null) return null;
-
-  // Already a number (assume milliseconds)
   if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
-
-  // String of digits (could be seconds or milliseconds)
   if (typeof raw === 'string' && /^[0-9]+$/.test(raw)) {
-    // if length >= 13 assume milliseconds, else seconds
     return raw.length >= 13 ? parseInt(raw, 10) : parseInt(raw, 10) * 1000;
   }
-
   if (typeof raw === 'object') {
-    // REST-style integerValue/doubleValue
     if (raw.integerValue !== undefined) {
       const s = String(raw.integerValue);
       const n = parseInt(s, 10);
@@ -36,23 +23,28 @@ function parseTimestamp(raw) {
       const n = Number(raw.doubleValue);
       return Number.isFinite(n) ? n : null;
     }
-    // Firestore Timestamp { seconds, nanoseconds }
     if (raw.seconds !== undefined) {
       const sec = Number(raw.seconds);
       const ns = Number(raw.nanoseconds) || 0;
       return sec * 1000 + Math.floor(ns / 1e6);
     }
   }
-
   return null;
 }
 
-const TemperatureDashboard = () => {
-  const [latestData, setLatestData] = useState(null);
-  const [historyData, setHistoryData] = useState([]);
+const BatteryChargerDashboard = () => {
+  // Latest data states
+  const [latestTemp, setLatestTemp] = useState(null);
+  const [latestCharger, setLatestCharger] = useState(null);
+  
+  // History data states
+  const [tempHistory, setTempHistory] = useState([]);
+  const [chargerHistory, setChargerHistory] = useState([]);
+  
+  // UI states
   const [loading, setLoading] = useState(true);
   const [cleanupLoading, setCleanupLoading] = useState(false);
-  const [cleanupCount, setCleanupCount] = useState(50); // default delete count
+  const [cleanupCount, setCleanupCount] = useState(50);
   const [stats, setStats] = useState({ total: 0, oldestDate: null, newestDate: null });
   const [cleanupResult, setCleanupResult] = useState(null);
 
@@ -91,7 +83,6 @@ const TemperatureDashboard = () => {
         getDocs
       };
 
-      // initial load
       loadData();
     } catch (error) {
       console.error('Firebase init error:', error);
@@ -105,68 +96,60 @@ const TemperatureDashboard = () => {
     try {
       const { rtdb, firestore, ref, onValue, collection, query, orderBy, limit, getDocs } = window.firebaseInstances;
 
-      // ---------------------------
-      // READ LATEST FROM RTDB
-      // ---------------------------
+      // ========== READ LATEST DATA FROM RTDB ==========
+      
+      // Temperature data
       try {
-        const rtdbRef = ref(rtdb, 'sensorData/temperature');
-        onValue(rtdbRef, (snapshot) => {
+        const tempRef = ref(rtdb, 'sensorData/temperature');
+        onValue(tempRef, (snapshot) => {
           const data = snapshot.val();
           if (!data) return;
 
-          // If RTDB returned an object (child list), try to pick last entry
-          if (typeof data === 'object' && !Array.isArray(data)) {
-            const keys = Object.keys(data);
-            const lastKey = keys[keys.length - 1];
-            const last = data[lastKey];
-            const ts = parseTimestamp(last?.timestamp ?? last?.time ?? null) || Date.now();
-
-            if (last && (last.celsius !== undefined || last.fahrenheit !== undefined)) {
-              setLatestData({
-                celsius: Number(last.celsius),
-                fahrenheit: Number(last.fahrenheit),
-                timestamp: ts
-              });
-            } else {
-              // fallback when data is a flat object with fields
-              setLatestData({
-                celsius: Number(data.celsius),
-                fahrenheit: Number(data.fahrenheit),
-                timestamp: parseTimestamp(data?.timestamp) || Date.now()
-              });
-            }
-          } else {
-            // direct values
-            setLatestData({
-              celsius: Number(data.celsius),
-              fahrenheit: Number(data.fahrenheit),
-              timestamp: parseTimestamp(data?.timestamp) || Date.now()
-            });
-          }
+          setLatestTemp({
+            celsius: Number(data.celsius) || 0,
+            fahrenheit: Number(data.fahrenheit) || 0,
+            timestamp: parseTimestamp(data.timestamp) || Date.now()
+          });
         });
       } catch (err) {
-        console.warn('RTDB read error:', err);
+        console.warn('RTDB temperature read error:', err);
       }
 
-      // ---------------------------
-      // READ HISTORY FROM FIRESTORE
-      // ---------------------------
+      // Charger data
       try {
-        const historyRef = collection(firestore, 'sensorData', 'data', 'history');
-        const q = query(historyRef, orderBy('timestamp', 'desc'), limit(100));
+        const chargerRef = ref(rtdb, 'chargerData/latest');
+        onValue(chargerRef, (snapshot) => {
+          const data = snapshot.val();
+          if (!data) return;
+
+          setLatestCharger({
+            voltage: Number(data.voltage) || 0,
+            current: Number(data.current) || 0,
+            state: data.state || 'Unknown',
+            timestamp: parseTimestamp(data.timestamp) || Date.now()
+          });
+        });
+      } catch (err) {
+        console.warn('RTDB charger read error:', err);
+      }
+
+      // ========== READ HISTORY FROM FIRESTORE ==========
+      
+      // Temperature history
+      try {
+        const tempHistoryRef = collection(firestore, 'sensorData', 'data', 'history');
+        const tempQuery = query(tempHistoryRef, orderBy('timestamp', 'desc'), limit(50));
         
-        const snapshot = await getDocs(q);
-        const history = [];
-        snapshot.forEach((doc) => {
+        const tempSnapshot = await getDocs(tempQuery);
+        const tempHist = [];
+        tempSnapshot.forEach((doc) => {
           const data = doc.data();
-          // normalize timestamp robustly
           const ts = parseTimestamp(data?.timestamp);
           const c = Number(data?.celsius);
           const f = Number(data?.fahrenheit);
 
-          // push only valid entries
           if (ts && (Number.isFinite(c) || Number.isFinite(f))) {
-            history.push({
+            tempHist.push({
               id: doc.id,
               timestamp: ts,
               celsius: Number.isFinite(c) ? c : null,
@@ -175,20 +158,47 @@ const TemperatureDashboard = () => {
           }
         });
 
-        const sortedHistory = history.reverse();
-        setHistoryData(sortedHistory);
-
-        if (sortedHistory.length > 0) {
-          setStats({
-            total: sortedHistory.length,
-            oldestDate: new Date(sortedHistory[0].timestamp),
-            newestDate: new Date(sortedHistory[sortedHistory.length - 1].timestamp)
-          });
-        } else {
-          setStats({ total: 0, oldestDate: null, newestDate: null });
-        }
+        setTempHistory(tempHist.reverse());
       } catch (err) {
-        console.warn('Firestore history read error:', err);
+        console.warn('Firestore temperature history error:', err);
+      }
+
+      // Charger history (assuming similar structure)
+      try {
+        const chargerHistoryRef = collection(firestore, 'chargerData', 'data', 'history');
+        const chargerQuery = query(chargerHistoryRef, orderBy('timestamp', 'desc'), limit(50));
+        
+        const chargerSnapshot = await getDocs(chargerQuery);
+        const chargerHist = [];
+        chargerSnapshot.forEach((doc) => {
+          const data = doc.data();
+          const ts = parseTimestamp(data?.timestamp);
+          const v = Number(data?.voltage);
+          const i = Number(data?.current);
+
+          if (ts && (Number.isFinite(v) || Number.isFinite(i))) {
+            chargerHist.push({
+              id: doc.id,
+              timestamp: ts,
+              voltage: Number.isFinite(v) ? v : null,
+              current: Number.isFinite(i) ? i : null,
+              state: data?.state || null
+            });
+          }
+        });
+
+        setChargerHistory(chargerHist.reverse());
+      } catch (err) {
+        console.warn('Firestore charger history error:', err);
+      }
+
+      // Calculate stats based on temperature history
+      if (tempHistory.length > 0) {
+        setStats({
+          total: tempHistory.length,
+          oldestDate: new Date(tempHistory[0].timestamp),
+          newestDate: new Date(tempHistory[tempHistory.length - 1].timestamp)
+        });
       }
 
       setLoading(false);
@@ -198,7 +208,6 @@ const TemperatureDashboard = () => {
     }
   };
 
-  // CLEANUP: send deleteCount to server
   const handleCleanup = async () => {
     if (!confirm(`Hapus ${cleanupCount} data tertua?`)) return;
 
@@ -234,7 +243,6 @@ const TemperatureDashboard = () => {
     }
   };
 
-  // FORCE timezone display to Asia/Jakarta (WIB)
   const formatDate = (timestamp) => {
     if (!timestamp) return '—';
     return new Date(timestamp).toLocaleString('id-ID', {
@@ -249,57 +257,64 @@ const TemperatureDashboard = () => {
 
   const formatChartDate = (timestamp) => {
     if (!timestamp) return '—';
-    const date = new Date(timestamp);
-    return date.toLocaleTimeString('id-ID', {
+    return new Date(timestamp).toLocaleTimeString('id-ID', {
       timeZone: 'Asia/Jakarta',
       hour: '2-digit',
       minute: '2-digit'
     });
   };
 
-  // Normalize data for charts
-  const chartData = historyData
-    .map((item) => {
-      const c = Number(item.celsius);
-      const f = Number(item.fahrenheit);
-      if (!Number.isFinite(c) && !Number.isFinite(f)) return null;
-      return {
-        time: formatChartDate(item.timestamp),
-        celsius: Number.isFinite(c) ? c : null,
-        fahrenheit: Number.isFinite(f) ? f : null,
-        timestamp: item.timestamp
-      };
-    })
-    .filter(Boolean);
+  // Prepare chart data
+  const tempChartData = tempHistory.map((item) => ({
+    time: formatChartDate(item.timestamp),
+    celsius: item.celsius,
+    fahrenheit: item.fahrenheit,
+    timestamp: item.timestamp
+  }));
 
-  // Safe tooltip
-  const CustomTooltip = ({ active, payload }) => {
+  const chargerChartData = chargerHistory.map((item) => ({
+    time: formatChartDate(item.timestamp),
+    voltage: item.voltage,
+    current: item.current,
+    timestamp: item.timestamp
+  }));
+
+  // Custom Tooltips
+  const TempTooltip = ({ active, payload }) => {
     if (!active || !payload || !payload.length) return null;
-
-    const point = payload[0] && payload[0].payload ? payload[0].payload : null;
+    const point = payload[0]?.payload;
     if (!point) return null;
-
-    const cVal = (payload[0] && typeof payload[0].value !== 'undefined')
-      ? Number(payload[0].value)
-      : (typeof point.celsius !== 'undefined' ? Number(point.celsius) : NaN);
-
-    const fVal = (payload[1] && typeof payload[1].value !== 'undefined')
-      ? Number(payload[1].value)
-      : (typeof point.fahrenheit !== 'undefined' ? Number(point.fahrenheit) : NaN);
-
-    const cText = Number.isFinite(cVal) ? cVal.toFixed(2) + '°C' : '--';
-    const fText = Number.isFinite(fVal) ? fVal.toFixed(2) + '°F' : '--';
 
     return (
       <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3">
         <p className="text-sm font-semibold text-gray-800 mb-2">
-          {point.timestamp ? formatDate(point.timestamp) : '—'}
+          {formatDate(point.timestamp)}
         </p>
         <p className="text-sm text-orange-600">
-          <span className="font-medium">Celsius:</span> {cText}
+          <span className="font-medium">Celsius:</span> {point.celsius?.toFixed(2) || '--'}°C
         </p>
         <p className="text-sm text-blue-600">
-          <span className="font-medium">Fahrenheit:</span> {fText}
+          <span className="font-medium">Fahrenheit:</span> {point.fahrenheit?.toFixed(2) || '--'}°F
+        </p>
+      </div>
+    );
+  };
+
+  const ChargerTooltip = ({ active, payload }) => {
+    if (!active || !payload || !payload.length) return null;
+    const point = payload[0]?.payload;
+    if (!point) return null;
+
+    return (
+      <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3">
+        <p className="text-sm font-semibold text-gray-800 mb-2">
+          {formatDate(point.timestamp)}
+        </p>
+        <p className="text-sm text-green-600">
+          <span className="font-medium">Voltage:</span> {point.voltage?.toFixed(2) || '--'}V
+        </p>
+        <p className="text-sm text-purple-600">
+          <span className="font-medium">Current:</span> {point.current?.toFixed(2) || '--'}A
         </p>
       </div>
     );
@@ -316,20 +331,20 @@ const TemperatureDashboard = () => {
     );
   }
 
-  // ========== RENDER ==========
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
+        
         {/* Header */}
         <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="bg-blue-500 p-3 rounded-xl">
-                <Thermometer className="w-8 h-8 text-white" />
+                <Battery className="w-8 h-8 text-white" />
               </div>
               <div>
-                <h1 className="text-3xl font-bold text-gray-800">Temperature Monitor</h1>
-                <p className="text-gray-500">Real-time DS18B20 Sensor Dashboard</p>
+                <h1 className="text-3xl font-bold text-gray-800">Battery Charger Monitor</h1>
+                <p className="text-gray-500">Real-time Monitoring Dashboard</p>
               </div>
             </div>
             <button 
@@ -341,92 +356,132 @@ const TemperatureDashboard = () => {
           </div>
         </div>
 
-        {/* Temperature Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+        {/* Latest Values Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+          
+          {/* Temperature Celsius */}
           <div className="bg-gradient-to-br from-orange-500 to-red-500 rounded-2xl shadow-xl p-6 text-white">
             <div className="flex items-center justify-between mb-4">
               <div className="bg-white/20 p-3 rounded-xl">
                 <Thermometer className="w-6 h-6" />
               </div>
               <span className="text-sm font-medium bg-white/20 px-3 py-1 rounded-full">
-                Celsius
+                Temperature
               </span>
             </div>
-            <div className="text-5xl font-bold mb-2">
-              {latestData?.celsius != null && Number.isFinite(Number(latestData.celsius)) ? Number(latestData.celsius).toFixed(2) : '--'}°C
+            <div className="text-4xl font-bold mb-2">
+              {latestTemp?.celsius != null ? latestTemp.celsius.toFixed(2) : '--'}°C
             </div>
             <p className="text-white/80 text-sm">
-              {latestData?.timestamp ? formatDate(latestData.timestamp) : 'Waiting...'}
+              {latestTemp?.timestamp ? formatDate(latestTemp.timestamp) : 'Waiting...'}
             </p>
           </div>
 
-          <div className="bg-gradient-to-br from-blue-500 to-indigo-500 rounded-2xl shadow-xl p-6 text-white">
+          {/* Voltage */}
+          <div className="bg-gradient-to-br from-green-500 to-emerald-500 rounded-2xl shadow-xl p-6 text-white">
             <div className="flex items-center justify-between mb-4">
               <div className="bg-white/20 p-3 rounded-xl">
-                <Thermometer className="w-6 h-6" />
+                <Zap className="w-6 h-6" />
               </div>
               <span className="text-sm font-medium bg-white/20 px-3 py-1 rounded-full">
-                Fahrenheit
+                Voltage
               </span>
             </div>
-            <div className="text-5xl font-bold mb-2">
-              {latestData?.fahrenheit != null && Number.isFinite(Number(latestData.fahrenheit)) ? Number(latestData.fahrenheit).toFixed(2) : '--'}°F
+            <div className="text-4xl font-bold mb-2">
+              {latestCharger?.voltage != null ? latestCharger.voltage.toFixed(2) : '--'}V
             </div>
             <p className="text-white/80 text-sm">
-              {latestData?.timestamp ? formatDate(latestData.timestamp) : 'Waiting...'}
+              {latestCharger?.timestamp ? formatDate(latestCharger.timestamp) : 'Waiting...'}
             </p>
           </div>
 
-          <div className="bg-white rounded-2xl shadow-xl p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="bg-green-100 p-3 rounded-xl">
-                <TrendingUp className="w-6 h-6 text-green-600" />
+          {/* Current */}
+          <div className="bg-gradient-to-br from-purple-500 to-indigo-500 rounded-2xl shadow-xl p-6 text-white">
+            <div className="flex items-center justify-between mb-4">
+              <div className="bg-white/20 p-3 rounded-xl">
+                <Activity className="w-6 h-6" />
               </div>
-              <h3 className="text-lg font-semibold text-gray-800">Statistics</h3>
+              <span className="text-sm font-medium bg-white/20 px-3 py-1 rounded-full">
+                Current
+              </span>
             </div>
-            <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <span className="text-gray-600">Total Records</span>
-                <span className="font-bold text-gray-800">{stats.total}</span>
+            <div className="text-4xl font-bold mb-2">
+              {latestCharger?.current != null ? latestCharger.current.toFixed(2) : '--'}A
+            </div>
+            <p className="text-white/80 text-sm">
+              {latestCharger?.timestamp ? formatDate(latestCharger.timestamp) : 'Waiting...'}
+            </p>
+          </div>
+
+          {/* Charger Status */}
+          <div className="bg-gradient-to-br from-blue-500 to-cyan-500 rounded-2xl shadow-xl p-6 text-white">
+            <div className="flex items-center justify-between mb-4">
+              <div className="bg-white/20 p-3 rounded-xl">
+                <Battery className="w-6 h-6" />
               </div>
-              {historyData.length > 0 && (
-                <>
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-600">Min Temp</span>
-                    <span className="font-bold text-blue-600">
-                      {Math.min(...historyData.map(d => d.celsius)).toFixed(1)}°C
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-600">Max Temp</span>
-                    <span className="font-bold text-red-600">
-                      {Math.max(...historyData.map(d => d.celsius)).toFixed(1)}°C
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-600">Average</span>
-                    <span className="font-bold text-gray-800">
-                      {(historyData.reduce((a, b) => a + b.celsius, 0) / historyData.length).toFixed(1)}°C
-                    </span>
-                  </div>
-                </>
-              )}
+              <span className="text-sm font-medium bg-white/20 px-3 py-1 rounded-full">
+                Status
+              </span>
             </div>
+            <div className="text-3xl font-bold mb-2">
+              {latestCharger?.state || 'Unknown'}
+            </div>
+            <p className="text-white/80 text-sm">
+              Charger State
+            </p>
           </div>
         </div>
 
-        {/* Line Chart */}
+        {/* Statistics Card */}
+        <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="bg-green-100 p-3 rounded-xl">
+              <TrendingUp className="w-6 h-6 text-green-600" />
+            </div>
+            <h3 className="text-lg font-semibold text-gray-800">Temperature Statistics (Last 50 Readings)</h3>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="text-center p-4 bg-gray-50 rounded-xl">
+              <span className="text-gray-600 text-sm">Total Records</span>
+              <p className="font-bold text-gray-800 text-2xl mt-1">{tempHistory.length}</p>
+            </div>
+            {tempHistory.length > 0 && (
+              <>
+                <div className="text-center p-4 bg-blue-50 rounded-xl">
+                  <span className="text-gray-600 text-sm">Min Temp</span>
+                  <p className="font-bold text-blue-600 text-2xl mt-1">
+                    {Math.min(...tempHistory.map(d => d.celsius)).toFixed(1)}°C
+                  </p>
+                </div>
+                <div className="text-center p-4 bg-red-50 rounded-xl">
+                  <span className="text-gray-600 text-sm">Max Temp</span>
+                  <p className="font-bold text-red-600 text-2xl mt-1">
+                    {Math.max(...tempHistory.map(d => d.celsius)).toFixed(1)}°C
+                  </p>
+                </div>
+                <div className="text-center p-4 bg-green-50 rounded-xl">
+                  <span className="text-gray-600 text-sm">Average</span>
+                  <p className="font-bold text-green-600 text-2xl mt-1">
+                    {(tempHistory.reduce((a, b) => a + b.celsius, 0) / tempHistory.length).toFixed(1)}°C
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Temperature History Chart */}
         <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
           <div className="flex items-center gap-2 mb-6">
-            <Activity className="w-6 h-6 text-blue-500" />
+            <Thermometer className="w-6 h-6 text-orange-500" />
             <h3 className="text-xl font-bold text-gray-800">
-              Temperature History Chart - Last {historyData.length} Readings
+              Temperature History Chart - Last 50 Readings
             </h3>
           </div>
           
-          {chartData.length > 0 ? (
+          {tempChartData.length > 0 ? (
             <ResponsiveContainer width="100%" height={400}>
-              <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+              <LineChart data={tempChartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
                 <XAxis 
                   dataKey="time" 
@@ -435,7 +490,7 @@ const TemperatureDashboard = () => {
                   angle={-45}
                   textAnchor="end"
                   height={80}
-                  interval={Math.floor(chartData.length / 10)}
+                  interval={Math.floor(tempChartData.length / 10)}
                 />
                 <YAxis 
                   yAxisId="left"
@@ -450,11 +505,8 @@ const TemperatureDashboard = () => {
                   style={{ fontSize: '12px' }}
                   label={{ value: 'Fahrenheit (°F)', angle: 90, position: 'insideRight' }}
                 />
-                <Tooltip content={<CustomTooltip />} />
-                <Legend 
-                  wrapperStyle={{ paddingTop: '20px' }}
-                  iconType="line"
-                />
+                <Tooltip content={<TempTooltip />} />
+                <Legend wrapperStyle={{ paddingTop: '20px' }} />
                 <Line 
                   yAxisId="left"
                   type="monotone" 
@@ -479,106 +531,78 @@ const TemperatureDashboard = () => {
             </ResponsiveContainer>
           ) : (
             <div className="h-96 flex items-center justify-center text-gray-400">
-              <div className="text-center">
-                <Activity className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                <p>Waiting for historical data...</p>
-              </div>
+              <p>Waiting for temperature data...</p>
             </div>
           )}
         </div>
 
-        {/* Area Chart */}
+        {/* Voltage & Current History Chart */}
         <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
           <div className="flex items-center gap-2 mb-6">
-            <TrendingUp className="w-6 h-6 text-purple-500" />
+            <Zap className="w-6 h-6 text-green-500" />
             <h3 className="text-xl font-bold text-gray-800">
-              Temperature Trend (Area Chart)
+              Voltage & Current History Chart - Last 50 Readings
             </h3>
           </div>
           
-          {chartData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={300}>
-              <AreaChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorCelsius" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#f97316" stopOpacity={0.8}/>
-                    <stop offset="95%" stopColor="#f97316" stopOpacity={0.1}/>
-                  </linearGradient>
-                </defs>
+          {chargerChartData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={400}>
+              <LineChart data={chargerChartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
                 <XAxis 
                   dataKey="time" 
                   stroke="#666"
                   style={{ fontSize: '12px' }}
-                  interval={Math.floor(chartData.length / 10)}
+                  angle={-45}
+                  textAnchor="end"
+                  height={80}
+                  interval={Math.floor(chargerChartData.length / 10)}
                 />
                 <YAxis 
-                  stroke="#666"
+                  yAxisId="left"
+                  stroke="#10b981"
                   style={{ fontSize: '12px' }}
-                  label={{ value: 'Temperature (°C)', angle: -90, position: 'insideLeft' }}
+                  label={{ value: 'Voltage (V)', angle: -90, position: 'insideLeft' }}
                 />
-                <Tooltip content={<CustomTooltip />} />
-                <Area 
+                <YAxis 
+                  yAxisId="right"
+                  orientation="right"
+                  stroke="#8b5cf6"
+                  style={{ fontSize: '12px' }}
+                  label={{ value: 'Current (A)', angle: 90, position: 'insideRight' }}
+                />
+                <Tooltip content={<ChargerTooltip />} />
+                <Legend wrapperStyle={{ paddingTop: '20px' }} />
+                <Line 
+                  yAxisId="left"
                   type="monotone" 
-                  dataKey="celsius" 
-                  stroke="#f97316" 
-                  fillOpacity={1} 
-                  fill="url(#colorCelsius)"
-                  name="Temperature (°C)"
+                  dataKey="voltage" 
+                  stroke="#10b981" 
+                  strokeWidth={2}
+                  dot={false}
+                  name="Voltage (V)"
+                  activeDot={{ r: 6 }}
                 />
-              </AreaChart>
+                <Line 
+                  yAxisId="right"
+                  type="monotone" 
+                  dataKey="current" 
+                  stroke="#8b5cf6" 
+                  strokeWidth={2}
+                  dot={false}
+                  name="Current (A)"
+                  activeDot={{ r: 6 }}
+                />
+              </LineChart>
             </ResponsiveContainer>
           ) : (
-            <div className="h-72 flex items-center justify-center text-gray-400">
-              <p>No data available</p>
+            <div className="h-96 flex items-center justify-center text-gray-400">
+              <p>Waiting for charger data...</p>
             </div>
           )}
         </div>
 
-        {/* Bar Chart */}
-        <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
-          <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-            <Clock className="w-5 h-5 text-blue-500" />
-            Recent Temperature Readings (Last 30)
-          </h3>
-          {historyData.length > 0 ? (
-            <>
-              <div className="h-64 flex items-end justify-between gap-1">
-                {historyData.slice(-30).map((data, index) => {
-                  const minTemp = Math.min(...historyData.map(d => d.celsius));
-                  const maxTemp = Math.max(...historyData.map(d => d.celsius));
-                  const range = maxTemp - minTemp || 10;
-                  const height = ((data.celsius - minTemp) / range) * 80 + 10;
-                  
-                  return (
-                    <div
-                      key={data.id || index}
-                      className="flex-1 bg-gradient-to-t from-blue-500 to-indigo-500 rounded-t-lg hover:from-blue-600 hover:to-indigo-600 transition-all cursor-pointer group relative"
-                      style={{ height: `${height}%` }}
-                    >
-                      <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-10">
-                        {data.celsius.toFixed(1)}°C
-                        <div className="text-gray-300 text-[10px] mt-0.5">
-                          {formatChartDate(data.timestamp)}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="flex justify-between text-xs text-gray-500 mt-2">
-                <span>Oldest</span>
-                <span>Latest</span>
-              </div>
-            </>
-          ) : (
-            <div className="h-64 flex items-center justify-center text-gray-400">
-              <p>Waiting for data...</p>
-            </div>
-          )}
-        </div>
-
-        {/* ✅ DATA CLEANUP SECTION - BY COUNT */}
+        {/* Data Cleanup Section */}
         <div className="bg-white rounded-2xl shadow-xl p-6">
           <div className="flex items-center gap-3 mb-6">
             <div className="bg-red-100 p-3 rounded-xl">
@@ -666,7 +690,7 @@ const TemperatureDashboard = () => {
 
         {/* Footer */}
         <div className="text-center mt-8 text-gray-500 text-sm">
-          <p>Dashboard monitoring suhu real-time dengan DS18B20 sensor</p>
+          <p>Dashboard monitoring battery charger real-time</p>
           <p className="mt-1">Data disimpan di Firebase RTDB & Firestore</p>
         </div>
       </div>
@@ -674,4 +698,4 @@ const TemperatureDashboard = () => {
   );
 };
 
-export default TemperatureDashboard;
+export default BatteryChargerDashboard;
