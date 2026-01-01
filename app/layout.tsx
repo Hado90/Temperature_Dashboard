@@ -3,8 +3,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Temperature Monitor Dashboard',
-  description: 'Real-time temperature monitoring with DS18B20 sensor',
+  title: 'Battery Charger Monitor Dashboard',
+  description: 'Real-time battery charger monitoring with temperature, voltage, and current tracking',
 };
 
 export default function RootLayout({
