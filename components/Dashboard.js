@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Battery, Trash2, RefreshCw, Database, Zap, Thermometer, Activity, AlertCircle, TrendingUp } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Battery, RefreshCw, Zap, Thermometer, Activity, AlertCircle, TrendingUp, CheckCircle } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 /**
@@ -13,52 +13,49 @@ function parseTimestamp(raw) {
   if (typeof raw === 'string' && /^[0-9]+$/.test(raw)) {
     return raw.length >= 13 ? parseInt(raw, 10) : parseInt(raw, 10) * 1000;
   }
-  if (typeof raw === 'object') {
-    if (raw.integerValue !== undefined) {
-      const s = String(raw.integerValue);
-      const n = parseInt(s, 10);
-      return s.length >= 13 ? n : n * 1000;
-    }
-    if (raw.doubleValue !== undefined) {
-      const n = Number(raw.doubleValue);
-      return Number.isFinite(n) ? n : null;
-    }
-    if (raw.seconds !== undefined) {
-      const sec = Number(raw.seconds);
-      const ns = Number(raw.nanoseconds) || 0;
-      return sec * 1000 + Math.floor(ns / 1e6);
-    }
-  }
   return null;
 }
 
+/**
+ * Format timestamp untuk display
+ */
+function formatTime(timestamp) {
+  if (!timestamp) return '—';
+  return new Date(timestamp).toLocaleTimeString('id-ID', {
+    timeZone: 'Asia/Jakarta',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+}
+
 const BatteryChargerDashboard = () => {
-  // Latest data states
+  // Latest realtime data
   const [latestTemp, setLatestTemp] = useState(null);
   const [latestCharger, setLatestCharger] = useState(null);
   
-  // History data states
+  // History data for charts
   const [tempHistory, setTempHistory] = useState([]);
   const [chargerHistory, setChargerHistory] = useState([]);
   
+  // Logging state
+  const [isLogging, setIsLogging] = useState(false);
+  const [loggingStartTime, setLoggingStartTime] = useState(null);
+  const previousStateRef = useRef('idle');
+  
   // UI states
   const [loading, setLoading] = useState(true);
-  const [cleanupLoading, setCleanupLoading] = useState(false);
-  const [cleanupCount, setCleanupCount] = useState(50);
-  const [stats, setStats] = useState({ total: 0, oldestDate: null, newestDate: null });
-  const [cleanupResult, setCleanupResult] = useState(null);
+  const [doneLoading, setDoneLoading] = useState(false);
+  const [stats, setStats] = useState({ total: 0 });
 
   useEffect(() => {
     initFirebase();
-    const interval = setInterval(loadData, 5000);
-    return () => clearInterval(interval);
   }, []);
 
   const initFirebase = async () => {
     try {
       const { initializeApp } = await import('firebase/app');
-      const { getDatabase, ref, onValue } = await import('firebase/database');
-      const { getFirestore, collection, query, orderBy, limit, getDocs } = await import('firebase/firestore');
+      const { getDatabase, ref, onValue, push, set, remove } = await import('firebase/database');
 
       const firebaseConfig = {
         apiKey: "AIzaSyDAMbhoIi8YsG5btxVzw7K4aaIGPlH85EY",
@@ -69,211 +66,252 @@ const BatteryChargerDashboard = () => {
 
       const app = initializeApp(firebaseConfig);
       const rtdb = getDatabase(app);
-      const firestore = getFirestore(app);
 
       window.firebaseInstances = {
         rtdb,
-        firestore,
         ref,
         onValue,
-        collection,
-        query,
-        orderBy,
-        limit,
-        getDocs
+        push,
+        set,
+        remove
       };
 
-      loadData();
+      console.log('🔥 Firebase initialized');
+      setupRealtimeListeners();
+      loadHistoryData();
     } catch (error) {
-      console.error('Firebase init error:', error);
+      console.error('❌ Firebase init error:', error);
       setLoading(false);
     }
   };
 
-  const loadData = async () => {
+  const setupRealtimeListeners = () => {
+    if (!window.firebaseInstances) return;
+
+    const { rtdb, ref, onValue } = window.firebaseInstances;
+
+    // Listen to temperature realtime
+    const tempRef = ref(rtdb, 'sensorData/temperature');
+    onValue(tempRef, (snapshot) => {
+      const data = snapshot.val();
+      if (!data) return;
+
+      const tempData = {
+        celsius: Number(data.celsius) || 0,
+        fahrenheit: Number(data.fahrenheit) || 0,
+        timestamp: parseTimestamp(data.timestamp) || Date.now()
+      };
+      
+      setLatestTemp(tempData);
+      console.log('🌡️ Temperature updated:', tempData.celsius);
+
+      // Log temperature if logging is active
+      if (isLogging) {
+        logTemperatureData(tempData);
+      }
+    });
+
+    // Listen to charger realtime
+    const chargerRef = ref(rtdb, 'chargerData/realtime');
+    onValue(chargerRef, (snapshot) => {
+      const data = snapshot.val();
+      if (!data) return;
+
+      const chargerData = {
+        voltage: Number(data.voltage) || 0,
+        current: Number(data.current) || 0,
+        state: data.state || 'Unknown',
+        timestamp: parseTimestamp(data.timestamp) || Date.now()
+      };
+      
+      setLatestCharger(chargerData);
+      console.log('⚡ Charger updated:', chargerData.voltage, 'V', chargerData.current, 'A', 'State:', chargerData.state);
+
+      // Check state change and start/stop logging
+      handleStateChange(chargerData.state);
+
+      // Log charger data if logging is active
+      if (isLogging) {
+        logChargerData(chargerData);
+      }
+    });
+
+    setLoading(false);
+  };
+
+  const handleStateChange = (currentState) => {
+    const previousState = previousStateRef.current;
+    
+    // Start logging when transitioning from idle to charging states
+    if (previousState === 'idle' && currentState !== 'idle' && currentState !== 'Unknown' && currentState !== 'DONE') {
+      console.log('🟢 Starting logging: state changed from idle to', currentState);
+      setIsLogging(true);
+      setLoggingStartTime(Date.now());
+    }
+    
+    // Keep logging active during charging cycle (CC, CV, TRANS)
+    if (currentState === 'CC' || currentState === 'CV' || currentState === 'TRANS' || currentState === 'CC-TRANS-CV') {
+      if (!isLogging) {
+        console.log('🟢 Resuming logging for state:', currentState);
+        setIsLogging(true);
+        if (!loggingStartTime) {
+          setLoggingStartTime(Date.now());
+        }
+      }
+    }
+
+    // Stop logging when DONE (but don't auto-clear, wait for user button)
+    if (currentState === 'DONE' && isLogging) {
+      console.log('🟡 Charging complete (DONE). Logging stopped. Press DONE button to clear data.');
+      setIsLogging(false);
+    }
+
+    previousStateRef.current = currentState;
+  };
+
+  const logTemperatureData = async (tempData) => {
     if (!window.firebaseInstances) return;
 
     try {
-      const { rtdb, firestore, ref, onValue, collection, query, orderBy, limit, getDocs } = window.firebaseInstances;
-
-      // ========== READ LATEST DATA FROM RTDB ==========
+      const { rtdb, ref, push, set } = window.firebaseInstances;
+      const historyRef = ref(rtdb, 'sensorData/history');
+      const newRef = push(historyRef);
       
-      // Temperature data
-      try {
-        const tempRef = ref(rtdb, 'sensorData/temperature');
-        onValue(tempRef, (snapshot) => {
-          const data = snapshot.val();
-          if (!data) return;
-
-          setLatestTemp({
-            celsius: Number(data.celsius) || 0,
-            fahrenheit: Number(data.fahrenheit) || 0,
-            timestamp: parseTimestamp(data.timestamp) || Date.now()
-          });
-        });
-      } catch (err) {
-        console.warn('RTDB temperature read error:', err);
-      }
-
-      // Charger data
-      try {
-        const chargerRef = ref(rtdb, 'chargerData/latest');
-        onValue(chargerRef, (snapshot) => {
-          const data = snapshot.val();
-          if (!data) return;
-
-          setLatestCharger({
-            voltage: Number(data.voltage) || 0,
-            current: Number(data.current) || 0,
-            state: data.state || 'Unknown',
-            timestamp: parseTimestamp(data.timestamp) || Date.now()
-          });
-        });
-      } catch (err) {
-        console.warn('RTDB charger read error:', err);
-      }
-
-      // ========== READ HISTORY FROM FIRESTORE ==========
-      
-      // Temperature history
-      try {
-        const tempHistoryRef = collection(firestore, 'sensorData', 'data', 'history');
-        const tempQuery = query(tempHistoryRef, orderBy('timestamp', 'desc'), limit(50));
-        
-        const tempSnapshot = await getDocs(tempQuery);
-        const tempHist = [];
-        tempSnapshot.forEach((doc) => {
-          const data = doc.data();
-          const ts = parseTimestamp(data?.timestamp);
-          const c = Number(data?.celsius);
-          const f = Number(data?.fahrenheit);
-
-          if (ts && (Number.isFinite(c) || Number.isFinite(f))) {
-            tempHist.push({
-              id: doc.id,
-              timestamp: ts,
-              celsius: Number.isFinite(c) ? c : null,
-              fahrenheit: Number.isFinite(f) ? f : null
-            });
-          }
-        });
-
-        setTempHistory(tempHist.reverse());
-      } catch (err) {
-        console.warn('Firestore temperature history error:', err);
-      }
-
-      // Charger history (assuming similar structure)
-      try {
-        const chargerHistoryRef = collection(firestore, 'chargerData', 'data', 'history');
-        const chargerQuery = query(chargerHistoryRef, orderBy('timestamp', 'desc'), limit(50));
-        
-        const chargerSnapshot = await getDocs(chargerQuery);
-        const chargerHist = [];
-        chargerSnapshot.forEach((doc) => {
-          const data = doc.data();
-          const ts = parseTimestamp(data?.timestamp);
-          const v = Number(data?.voltage);
-          const i = Number(data?.current);
-
-          if (ts && (Number.isFinite(v) || Number.isFinite(i))) {
-            chargerHist.push({
-              id: doc.id,
-              timestamp: ts,
-              voltage: Number.isFinite(v) ? v : null,
-              current: Number.isFinite(i) ? i : null,
-              state: data?.state || null
-            });
-          }
-        });
-
-        setChargerHistory(chargerHist.reverse());
-      } catch (err) {
-        console.warn('Firestore charger history error:', err);
-      }
-
-      // Calculate stats based on temperature history
-      if (tempHistory.length > 0) {
-        setStats({
-          total: tempHistory.length,
-          oldestDate: new Date(tempHistory[0].timestamp),
-          newestDate: new Date(tempHistory[tempHistory.length - 1].timestamp)
-        });
-      }
-
-      setLoading(false);
+      await set(newRef, {
+        celsius: tempData.celsius,
+        fahrenheit: tempData.fahrenheit,
+        timestamp: tempData.timestamp,
+        formattedTime: formatTime(tempData.timestamp)
+      });
     } catch (error) {
-      console.error('Error loading data:', error);
-      setLoading(false);
+      console.error('❌ Error logging temperature:', error);
     }
   };
 
-  const handleCleanup = async () => {
-    if (!confirm(`Hapus ${cleanupCount} data tertua?`)) return;
-
-    setCleanupLoading(true);
-    setCleanupResult(null);
+  const logChargerData = async (chargerData) => {
+    if (!window.firebaseInstances) return;
 
     try {
-      const response = await fetch('/api/cleanup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deleteCount: cleanupCount })
+      const { rtdb, ref, push, set } = window.firebaseInstances;
+      const historyRef = ref(rtdb, 'chargerData/history');
+      const newRef = push(historyRef);
+      
+      await set(newRef, {
+        voltage: chargerData.voltage,
+        current: chargerData.current,
+        state: chargerData.state,
+        timestamp: chargerData.timestamp,
+        formattedTime: formatTime(chargerData.timestamp)
       });
-
-      const result = await response.json();
-
-      if (result.success) {
-        setCleanupResult({
-          success: true,
-          message: `✅ Berhasil menghapus ${result.deleted} data`,
-          deleted: result.deleted
-        });
-        setTimeout(() => loadData(), 1000);
-      } else {
-        throw new Error(result.error || 'Unknown');
-      }
     } catch (error) {
-      setCleanupResult({
-        success: false,
-        message: `❌ Gagal: ${error.message}`
-      });
-    } finally {
-      setCleanupLoading(false);
+      console.error('❌ Error logging charger data:', error);
     }
   };
 
-  const formatDate = (timestamp) => {
-    if (!timestamp) return '—';
-    return new Date(timestamp).toLocaleString('id-ID', {
-      timeZone: 'Asia/Jakarta',
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
+  const loadHistoryData = useCallback(() => {
+    if (!window.firebaseInstances) return;
 
-  const formatChartDate = (timestamp) => {
-    if (!timestamp) return '—';
-    return new Date(timestamp).toLocaleTimeString('id-ID', {
-      timeZone: 'Asia/Jakarta',
-      hour: '2-digit',
-      minute: '2-digit'
+    const { rtdb, ref, onValue } = window.firebaseInstances;
+
+    // Load temperature history
+    const tempHistoryRef = ref(rtdb, 'sensorData/history');
+    onValue(tempHistoryRef, (snapshot) => {
+      const data = snapshot.val();
+      if (!data) {
+        setTempHistory([]);
+        return;
+      }
+
+      const history = Object.entries(data).map(([key, value]) => ({
+        id: key,
+        celsius: Number(value.celsius) || 0,
+        fahrenheit: Number(value.fahrenheit) || 0,
+        timestamp: parseTimestamp(value.timestamp) || 0,
+        formattedTime: value.formattedTime || formatTime(value.timestamp)
+      }));
+
+      // Sort by timestamp ascending
+      history.sort((a, b) => a.timestamp - b.timestamp);
+      setTempHistory(history);
+      console.log('📊 Temperature history loaded:', history.length, 'records');
     });
+
+    // Load charger history
+    const chargerHistoryRef = ref(rtdb, 'chargerData/history');
+    onValue(chargerHistoryRef, (snapshot) => {
+      const data = snapshot.val();
+      if (!data) {
+        setChargerHistory([]);
+        setStats({ total: 0 });
+        return;
+      }
+
+      const history = Object.entries(data).map(([key, value]) => ({
+        id: key,
+        voltage: Number(value.voltage) || 0,
+        current: Number(value.current) || 0,
+        state: value.state || '',
+        timestamp: parseTimestamp(value.timestamp) || 0,
+        formattedTime: value.formattedTime || formatTime(value.timestamp)
+      }));
+
+      // Sort by timestamp ascending
+      history.sort((a, b) => a.timestamp - b.timestamp);
+      setChargerHistory(history);
+      setStats({ total: history.length });
+      console.log('📊 Charger history loaded:', history.length, 'records');
+    });
+  }, []);
+
+  const handleDoneButton = async () => {
+    if (!latestCharger || latestCharger.state !== 'DONE') {
+      alert('⚠️ Tombol DONE hanya bisa ditekan saat status charging adalah DONE');
+      return;
+    }
+
+    if (!confirm('Hapus semua data history dan reset untuk siklus charging baru?')) {
+      return;
+    }
+
+    setDoneLoading(true);
+
+    try {
+      const { rtdb, ref, remove } = window.firebaseInstances;
+
+      // Clear temperature history
+      const tempHistoryRef = ref(rtdb, 'sensorData/history');
+      await remove(tempHistoryRef);
+      console.log('✅ Temperature history cleared');
+
+      // Clear charger history
+      const chargerHistoryRef = ref(rtdb, 'chargerData/history');
+      await remove(chargerHistoryRef);
+      console.log('✅ Charger history cleared');
+
+      // Reset logging state
+      setIsLogging(false);
+      setLoggingStartTime(null);
+      previousStateRef.current = 'idle';
+      
+      alert('✅ Semua data history berhasil dihapus. Siap untuk siklus charging baru.');
+    } catch (error) {
+      console.error('❌ Error clearing history:', error);
+      alert('❌ Gagal menghapus data: ' + error.message);
+    } finally {
+      setDoneLoading(false);
+    }
   };
 
   // Prepare chart data
   const tempChartData = tempHistory.map((item) => ({
-    time: formatChartDate(item.timestamp),
+    time: item.formattedTime,
     celsius: item.celsius,
     fahrenheit: item.fahrenheit,
     timestamp: item.timestamp
   }));
 
   const chargerChartData = chargerHistory.map((item) => ({
-    time: formatChartDate(item.timestamp),
+    time: item.formattedTime,
     voltage: item.voltage,
     current: item.current,
     timestamp: item.timestamp
@@ -288,13 +326,13 @@ const BatteryChargerDashboard = () => {
     return (
       <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3">
         <p className="text-sm font-semibold text-gray-800 mb-2">
-          {formatDate(point.timestamp)}
+          {point.time}
         </p>
         <p className="text-sm text-orange-600">
-          <span className="font-medium">Celsius:</span> {point.celsius?.toFixed(2) || '--'}°C
+          <span className="font-medium">Celsius:</span> {point.celsius?.toFixed(2)}°C
         </p>
         <p className="text-sm text-blue-600">
-          <span className="font-medium">Fahrenheit:</span> {point.fahrenheit?.toFixed(2) || '--'}°F
+          <span className="font-medium">Fahrenheit:</span> {point.fahrenheit?.toFixed(2)}°F
         </p>
       </div>
     );
@@ -308,13 +346,13 @@ const BatteryChargerDashboard = () => {
     return (
       <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3">
         <p className="text-sm font-semibold text-gray-800 mb-2">
-          {formatDate(point.timestamp)}
+          {point.time}
         </p>
         <p className="text-sm text-green-600">
-          <span className="font-medium">Voltage:</span> {point.voltage?.toFixed(2) || '--'}V
+          <span className="font-medium">Voltage:</span> {point.voltage?.toFixed(2)}V
         </p>
         <p className="text-sm text-purple-600">
-          <span className="font-medium">Current:</span> {point.current?.toFixed(2) || '--'}A
+          <span className="font-medium">Current:</span> {point.current?.toFixed(2)}A
         </p>
       </div>
     );
@@ -347,16 +385,30 @@ const BatteryChargerDashboard = () => {
                 <p className="text-gray-500">Real-time Monitoring Dashboard</p>
               </div>
             </div>
-            <button 
-              onClick={loadData}
-              className="p-3 bg-blue-50 hover:bg-blue-100 rounded-xl transition-colors"
-            >
-              <RefreshCw className="w-6 h-6 text-blue-500" />
-            </button>
+            
+            {/* Logging Status Indicator */}
+            <div className="flex items-center gap-4">
+              <div className={`px-4 py-2 rounded-xl flex items-center gap-2 ${
+                isLogging ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+              }`}>
+                <div className={`w-3 h-3 rounded-full ${isLogging ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
+                <span className="font-medium text-sm">
+                  {isLogging ? 'Logging Active' : 'Standby'}
+                </span>
+              </div>
+              
+              <button 
+                onClick={loadHistoryData}
+                className="p-3 bg-blue-50 hover:bg-blue-100 rounded-xl transition-colors"
+                title="Refresh Data"
+              >
+                <RefreshCw className="w-6 h-6 text-blue-500" />
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* Latest Values Cards */}
+        {/* Latest Values Cards - WITHOUT DATES */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
           
           {/* Temperature Celsius */}
@@ -369,12 +421,10 @@ const BatteryChargerDashboard = () => {
                 Temperature
               </span>
             </div>
-            <div className="text-4xl font-bold mb-2">
-              {latestTemp?.celsius != null ? latestTemp.celsius.toFixed(2) : '--'}°C
+            <div className="text-5xl font-bold mb-2">
+              {latestTemp?.celsius != null ? latestTemp.celsius.toFixed(1) : '--'}
             </div>
-            <p className="text-white/80 text-sm">
-              {latestTemp?.timestamp ? formatDate(latestTemp.timestamp) : 'Waiting...'}
-            </p>
+            <p className="text-white/90 text-lg font-medium">°Celsius</p>
           </div>
 
           {/* Voltage */}
@@ -387,12 +437,10 @@ const BatteryChargerDashboard = () => {
                 Voltage
               </span>
             </div>
-            <div className="text-4xl font-bold mb-2">
-              {latestCharger?.voltage != null ? latestCharger.voltage.toFixed(2) : '--'}V
+            <div className="text-5xl font-bold mb-2">
+              {latestCharger?.voltage != null ? latestCharger.voltage.toFixed(2) : '--'}
             </div>
-            <p className="text-white/80 text-sm">
-              {latestCharger?.timestamp ? formatDate(latestCharger.timestamp) : 'Waiting...'}
-            </p>
+            <p className="text-white/90 text-lg font-medium">Volts</p>
           </div>
 
           {/* Current */}
@@ -405,16 +453,20 @@ const BatteryChargerDashboard = () => {
                 Current
               </span>
             </div>
-            <div className="text-4xl font-bold mb-2">
-              {latestCharger?.current != null ? latestCharger.current.toFixed(2) : '--'}A
+            <div className="text-5xl font-bold mb-2">
+              {latestCharger?.current != null ? latestCharger.current.toFixed(2) : '--'}
             </div>
-            <p className="text-white/80 text-sm">
-              {latestCharger?.timestamp ? formatDate(latestCharger.timestamp) : 'Waiting...'}
-            </p>
+            <p className="text-white/90 text-lg font-medium">Amperes</p>
           </div>
 
           {/* Charger Status */}
-          <div className="bg-gradient-to-br from-blue-500 to-cyan-500 rounded-2xl shadow-xl p-6 text-white">
+          <div className={`rounded-2xl shadow-xl p-6 text-white ${
+            latestCharger?.state === 'DONE' 
+              ? 'bg-gradient-to-br from-green-500 to-emerald-600'
+              : latestCharger?.state === 'idle'
+              ? 'bg-gradient-to-br from-gray-400 to-gray-500'
+              : 'bg-gradient-to-br from-blue-500 to-cyan-500'
+          }`}>
             <div className="flex items-center justify-between mb-4">
               <div className="bg-white/20 p-3 rounded-xl">
                 <Battery className="w-6 h-6" />
@@ -423,51 +475,72 @@ const BatteryChargerDashboard = () => {
                 Status
               </span>
             </div>
-            <div className="text-3xl font-bold mb-2">
+            <div className="text-4xl font-bold mb-2">
               {latestCharger?.state || 'Unknown'}
             </div>
-            <p className="text-white/80 text-sm">
+            <p className="text-white/90 text-sm font-medium">
               Charger State
             </p>
           </div>
         </div>
 
-        {/* Statistics Card */}
+        {/* Statistics & Done Button */}
         <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="bg-green-100 p-3 rounded-xl">
-              <TrendingUp className="w-6 h-6 text-green-600" />
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="bg-green-100 p-3 rounded-xl">
+                <TrendingUp className="w-6 h-6 text-green-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-800">
+                  Current Charging Cycle Statistics
+                </h3>
+                <p className="text-sm text-gray-500">
+                  {stats.total} data points logged
+                  {loggingStartTime && isLogging && (
+                    <span className="ml-2 text-blue-600">
+                      • Started {new Date(loggingStartTime).toLocaleTimeString('id-ID')}
+                    </span>
+                  )}
+                </p>
+              </div>
             </div>
-            <h3 className="text-lg font-semibold text-gray-800">Temperature Statistics (Last 50 Readings)</h3>
+
+            {/* DONE Button - Only enabled when state is DONE */}
+            <button
+              onClick={handleDoneButton}
+              disabled={doneLoading || !latestCharger || latestCharger.state !== 'DONE'}
+              className={`px-6 py-3 rounded-xl font-semibold flex items-center gap-2 transition-all ${
+                latestCharger?.state === 'DONE'
+                  ? 'bg-green-500 hover:bg-green-600 text-white shadow-lg hover:shadow-xl'
+                  : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+              }`}
+            >
+              {doneLoading ? (
+                <>
+                  <RefreshCw className="w-5 h-5 animate-spin" />
+                  Clearing...
+                </>
+              ) : (
+                <>
+                  <CheckCircle className="w-5 h-5" />
+                  DONE & Clear Data
+                </>
+              )}
+            </button>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="text-center p-4 bg-gray-50 rounded-xl">
-              <span className="text-gray-600 text-sm">Total Records</span>
-              <p className="font-bold text-gray-800 text-2xl mt-1">{tempHistory.length}</p>
+
+          {latestCharger?.state !== 'DONE' && (
+            <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                <p className="text-sm text-blue-800">
+                  Tombol DONE hanya aktif saat status charging adalah <strong>DONE</strong>. 
+                  Saat ditekan, semua data history akan dihapus untuk memulai siklus charging baru.
+                </p>
+              </div>
             </div>
-            {tempHistory.length > 0 && (
-              <>
-                <div className="text-center p-4 bg-blue-50 rounded-xl">
-                  <span className="text-gray-600 text-sm">Min Temp</span>
-                  <p className="font-bold text-blue-600 text-2xl mt-1">
-                    {Math.min(...tempHistory.map(d => d.celsius)).toFixed(1)}°C
-                  </p>
-                </div>
-                <div className="text-center p-4 bg-red-50 rounded-xl">
-                  <span className="text-gray-600 text-sm">Max Temp</span>
-                  <p className="font-bold text-red-600 text-2xl mt-1">
-                    {Math.max(...tempHistory.map(d => d.celsius)).toFixed(1)}°C
-                  </p>
-                </div>
-                <div className="text-center p-4 bg-green-50 rounded-xl">
-                  <span className="text-gray-600 text-sm">Average</span>
-                  <p className="font-bold text-green-600 text-2xl mt-1">
-                    {(tempHistory.reduce((a, b) => a + b.celsius, 0) / tempHistory.length).toFixed(1)}°C
-                  </p>
-                </div>
-              </>
-            )}
-          </div>
+          )}
         </div>
 
         {/* Temperature History Chart */}
@@ -475,7 +548,7 @@ const BatteryChargerDashboard = () => {
           <div className="flex items-center gap-2 mb-6">
             <Thermometer className="w-6 h-6 text-orange-500" />
             <h3 className="text-xl font-bold text-gray-800">
-              Temperature History Chart - Last 50 Readings
+              Temperature History - Current Cycle ({tempHistory.length} readings)
             </h3>
           </div>
           
@@ -490,7 +563,7 @@ const BatteryChargerDashboard = () => {
                   angle={-45}
                   textAnchor="end"
                   height={80}
-                  interval={Math.floor(tempChartData.length / 10)}
+                  interval={Math.floor(tempChartData.length / 15)}
                 />
                 <YAxis 
                   yAxisId="left"
@@ -531,7 +604,11 @@ const BatteryChargerDashboard = () => {
             </ResponsiveContainer>
           ) : (
             <div className="h-96 flex items-center justify-center text-gray-400">
-              <p>Waiting for temperature data...</p>
+              <div className="text-center">
+                <Activity className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                <p>No data logged yet. Waiting for charging cycle to start...</p>
+                <p className="text-sm mt-2">Logging will start automatically when state changes from idle.</p>
+              </div>
             </div>
           )}
         </div>
@@ -541,7 +618,7 @@ const BatteryChargerDashboard = () => {
           <div className="flex items-center gap-2 mb-6">
             <Zap className="w-6 h-6 text-green-500" />
             <h3 className="text-xl font-bold text-gray-800">
-              Voltage & Current History Chart - Last 50 Readings
+              Voltage & Current History - Current Cycle ({chargerHistory.length} readings)
             </h3>
           </div>
           
@@ -556,7 +633,7 @@ const BatteryChargerDashboard = () => {
                   angle={-45}
                   textAnchor="end"
                   height={80}
-                  interval={Math.floor(chargerChartData.length / 10)}
+                  interval={Math.floor(chargerChartData.length / 15)}
                 />
                 <YAxis 
                   yAxisId="left"
@@ -597,101 +674,19 @@ const BatteryChargerDashboard = () => {
             </ResponsiveContainer>
           ) : (
             <div className="h-96 flex items-center justify-center text-gray-400">
-              <p>Waiting for charger data...</p>
-            </div>
-          )}
-        </div>
-
-        {/* Data Cleanup Section */}
-        <div className="bg-white rounded-2xl shadow-xl p-6">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="bg-red-100 p-3 rounded-xl">
-              <Database className="w-6 h-6 text-red-600" />
-            </div>
-            <div>
-              <h3 className="text-xl font-bold text-gray-800">Data Cleanup</h3>
-              <p className="text-sm text-gray-500">Hapus data tertua berdasarkan jumlah</p>
-            </div>
-          </div>
-
-          {stats.oldestDate && (
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
-              <div className="flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
-                <div className="text-sm">
-                  <p className="text-gray-700">
-                    <strong>Total data:</strong> {stats.total} records
-                  </p>
-                  <p className="text-gray-700 mt-1">
-                    <strong>Data tertua:</strong> {formatDate(stats.oldestDate.getTime())}
-                  </p>
-                  <p className="text-gray-700 mt-1">
-                    <strong>Data terbaru:</strong> {formatDate(stats.newestDate.getTime())}
-                  </p>
-                </div>
+              <div className="text-center">
+                <Activity className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                <p>No data logged yet. Waiting for charging cycle to start...</p>
+                <p className="text-sm mt-2">Logging will start automatically when state changes from idle.</p>
               </div>
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Jumlah data tertua yang akan dihapus:
-              </label>
-              <input
-                type="number"
-                value={cleanupCount}
-                onChange={(e) => setCleanupCount(parseInt(e.target.value) || 1)}
-                min="1"
-                max={stats.total}
-                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                placeholder="50"
-              />
-              <p className="text-xs text-gray-500 mt-2">
-                Akan menghapus {cleanupCount} data tertua dari total {stats.total} data
-              </p>
-            </div>
-
-            <div className="flex items-end">
-              <button
-                onClick={handleCleanup}
-                disabled={cleanupLoading || stats.total === 0}
-                className="w-full bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold py-3 px-6 rounded-xl shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {cleanupLoading ? (
-                  <>
-                    <RefreshCw className="w-5 h-5 animate-spin" />
-                    Processing...
-                  </>
-                ) : (
-                  <>
-                    <Trash2 className="w-5 h-5" />
-                    Hapus {cleanupCount} Data Tertua
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-
-          {cleanupResult && (
-            <div className={`mt-6 p-4 rounded-xl ${
-              cleanupResult.success 
-                ? 'bg-green-50 border border-green-200' 
-                : 'bg-red-50 border border-red-200'
-            }`}>
-              <p className={`text-sm font-medium ${
-                cleanupResult.success ? 'text-green-800' : 'text-red-800'
-              }`}>
-                {cleanupResult.message}
-              </p>
             </div>
           )}
         </div>
 
         {/* Footer */}
         <div className="text-center mt-8 text-gray-500 text-sm">
-          <p>Dashboard monitoring battery charger real-time</p>
-          <p className="mt-1">Data disimpan di Firebase RTDB & Firestore</p>
+          <p>Battery Charger Monitor - Real-time Data Logging per Charging Cycle</p>
+          <p className="mt-1">Auto-logging active during CC-TRANS-CV charging states • Data clears on DONE</p>
         </div>
       </div>
     </div>
