@@ -54,6 +54,8 @@ const BatteryChargerDashboard = () => {
 
   const initFirebase = async () => {
     try {
+      console.log('🔥 Initializing Firebase...');
+      
       const { initializeApp } = await import('firebase/app');
       const { getDatabase, ref, onValue, push, set, remove } = await import('firebase/database');
 
@@ -64,8 +66,16 @@ const BatteryChargerDashboard = () => {
         projectId: "battery-monitor-29168",
       };
 
+      console.log('📝 Firebase config:', {
+        projectId: firebaseConfig.projectId,
+        databaseURL: firebaseConfig.databaseURL
+      });
+
       const app = initializeApp(firebaseConfig);
       const rtdb = getDatabase(app);
+
+      console.log('✅ Firebase app initialized');
+      console.log('🔗 RTDB instance:', rtdb ? 'OK' : 'FAILED');
 
       window.firebaseInstances = {
         rtdb,
@@ -76,67 +86,129 @@ const BatteryChargerDashboard = () => {
         remove
       };
 
-      console.log('🔥 Firebase initialized');
+      console.log('✅ Firebase instances stored in window');
       setupRealtimeListeners();
       loadHistoryData();
     } catch (error) {
       console.error('❌ Firebase init error:', error);
+      console.error('Error name:', error.name);
+      console.error('Error message:', error.message);
+      console.error('Error stack:', error.stack);
       setLoading(false);
     }
   };
 
   const setupRealtimeListeners = () => {
-    if (!window.firebaseInstances) return;
+    if (!window.firebaseInstances) {
+      console.error('❌ Firebase instances not initialized');
+      return;
+    }
 
     const { rtdb, ref, onValue } = window.firebaseInstances;
+    console.log('📡 Setting up realtime listeners...');
 
     // Listen to temperature realtime
     const tempRef = ref(rtdb, 'sensorData/temperature');
-    onValue(tempRef, (snapshot) => {
-      const data = snapshot.val();
-      if (!data) return;
+    console.log('🔗 Subscribing to: sensorData/temperature');
+    
+    onValue(tempRef, 
+      (snapshot) => {
+        console.log('📥 Temperature snapshot received');
+        const data = snapshot.val();
+        console.log('🌡️ Temperature raw data:', data);
+        
+        if (!data) {
+          console.warn('⚠️ No temperature data found');
+          return;
+        }
 
-      const tempData = {
-        celsius: Number(data.celsius) || 0,
-        fahrenheit: Number(data.fahrenheit) || 0,
-        timestamp: parseTimestamp(data.timestamp) || Date.now()
-      };
-      
-      setLatestTemp(tempData);
-      console.log('🌡️ Temperature updated:', tempData.celsius);
+        const tempData = {
+          celsius: Number(data.celsius) || 0,
+          fahrenheit: Number(data.fahrenheit) || 0,
+          timestamp: parseTimestamp(data.timestamp) || Date.now()
+        };
+        
+        setLatestTemp(tempData);
+        console.log('✅ Temperature updated:', tempData);
 
-      // Log temperature if logging is active
-      if (isLogging) {
-        logTemperatureData(tempData);
+        // Log temperature if logging is active
+        if (isLogging) {
+          console.log('📝 Logging temperature data...');
+          logTemperatureData(tempData);
+        }
+      },
+      (error) => {
+        console.error('❌ Temperature listener error:', error);
+        console.error('Error code:', error.code);
+        console.error('Error message:', error.message);
       }
-    });
+    );
 
-    // Listen to charger realtime
-    const chargerRef = ref(rtdb, 'chargerData/realtime');
-    onValue(chargerRef, (snapshot) => {
-      const data = snapshot.val();
-      if (!data) return;
+    // Listen to charger realtime - TRY BOTH latest AND realtime
+    const chargerRefLatest = ref(rtdb, 'chargerData/latest');
+    console.log('🔗 Subscribing to: chargerData/latest');
+    
+    onValue(chargerRefLatest, 
+      (snapshot) => {
+        console.log('📥 Charger snapshot received (latest path)');
+        const data = snapshot.val();
+        console.log('⚡ Charger raw data:', data);
+        
+        if (!data) {
+          console.warn('⚠️ No charger data found at chargerData/latest');
+          
+          // Try alternative path
+          const chargerRefRealtime = ref(rtdb, 'chargerData/realtime');
+          console.log('🔗 Trying alternative path: chargerData/realtime');
+          
+          onValue(chargerRefRealtime, (snap) => {
+            const altData = snap.val();
+            console.log('⚡ Charger data from realtime path:', altData);
+            if (altData) {
+              processChargerData(altData);
+            }
+          }, (err) => {
+            console.error('❌ Alternative path also failed:', err);
+          });
+          
+          return;
+        }
 
-      const chargerData = {
-        voltage: Number(data.voltage) || 0,
-        current: Number(data.current) || 0,
-        state: data.state || 'Unknown',
-        timestamp: parseTimestamp(data.timestamp) || Date.now()
-      };
-      
-      setLatestCharger(chargerData);
-      console.log('⚡ Charger updated:', chargerData.voltage, 'V', chargerData.current, 'A', 'State:', chargerData.state);
-
-      // Check state change and start/stop logging
-      handleStateChange(chargerData.state);
-
-      // Log charger data if logging is active
-      if (isLogging) {
-        logChargerData(chargerData);
+        processChargerData(data);
+      },
+      (error) => {
+        console.error('❌ Charger listener error:', error);
+        console.error('Error code:', error.code);
+        console.error('Error message:', error.message);
+        
+        if (error.code === 'PERMISSION_DENIED') {
+          console.error('🚫 PERMISSION DENIED - Check Firebase rules!');
+        }
       }
-    });
+    );
 
     setLoading(false);
+  };
+
+  const processChargerData = (data) => {
+    const chargerData = {
+      voltage: Number(data.voltage) || 0,
+      current: Number(data.current) || 0,
+      state: data.state || 'Unknown',
+      timestamp: parseTimestamp(data.timestamp) || Date.now()
+    };
+    
+    setLatestCharger(chargerData);
+    console.log('✅ Charger updated:', chargerData);
+
+    // Check state change and start/stop logging
+    handleStateChange(chargerData.state);
+
+    // Log charger data if logging is active
+    if (isLogging) {
+      console.log('📝 Logging charger data...');
+      logChargerData(chargerData);
+    }
   };
 
   const handleStateChange = (currentState) => {
@@ -209,58 +281,84 @@ const BatteryChargerDashboard = () => {
   };
 
   const loadHistoryData = useCallback(() => {
-    if (!window.firebaseInstances) return;
+    if (!window.firebaseInstances) {
+      console.error('❌ Cannot load history - Firebase not initialized');
+      return;
+    }
 
     const { rtdb, ref, onValue } = window.firebaseInstances;
+    console.log('📊 Loading history data...');
 
     // Load temperature history
     const tempHistoryRef = ref(rtdb, 'sensorData/history');
-    onValue(tempHistoryRef, (snapshot) => {
-      const data = snapshot.val();
-      if (!data) {
-        setTempHistory([]);
-        return;
+    console.log('🔗 Subscribing to: sensorData/history');
+    
+    onValue(tempHistoryRef, 
+      (snapshot) => {
+        console.log('📥 Temperature history snapshot received');
+        const data = snapshot.val();
+        console.log('🌡️ Temperature history raw data:', data);
+        
+        if (!data) {
+          console.warn('⚠️ No temperature history data');
+          setTempHistory([]);
+          return;
+        }
+
+        const history = Object.entries(data).map(([key, value]) => ({
+          id: key,
+          celsius: Number(value.celsius) || 0,
+          fahrenheit: Number(value.fahrenheit) || 0,
+          timestamp: parseTimestamp(value.timestamp) || 0,
+          formattedTime: value.formattedTime || formatTime(value.timestamp)
+        }));
+
+        // Sort by timestamp ascending
+        history.sort((a, b) => a.timestamp - b.timestamp);
+        setTempHistory(history);
+        console.log('✅ Temperature history loaded:', history.length, 'records');
+      },
+      (error) => {
+        console.error('❌ Temperature history listener error:', error);
       }
-
-      const history = Object.entries(data).map(([key, value]) => ({
-        id: key,
-        celsius: Number(value.celsius) || 0,
-        fahrenheit: Number(value.fahrenheit) || 0,
-        timestamp: parseTimestamp(value.timestamp) || 0,
-        formattedTime: value.formattedTime || formatTime(value.timestamp)
-      }));
-
-      // Sort by timestamp ascending
-      history.sort((a, b) => a.timestamp - b.timestamp);
-      setTempHistory(history);
-      console.log('📊 Temperature history loaded:', history.length, 'records');
-    });
+    );
 
     // Load charger history
     const chargerHistoryRef = ref(rtdb, 'chargerData/history');
-    onValue(chargerHistoryRef, (snapshot) => {
-      const data = snapshot.val();
-      if (!data) {
-        setChargerHistory([]);
-        setStats({ total: 0 });
-        return;
+    console.log('🔗 Subscribing to: chargerData/history');
+    
+    onValue(chargerHistoryRef, 
+      (snapshot) => {
+        console.log('📥 Charger history snapshot received');
+        const data = snapshot.val();
+        console.log('⚡ Charger history raw data:', data);
+        
+        if (!data) {
+          console.warn('⚠️ No charger history data');
+          setChargerHistory([]);
+          setStats({ total: 0 });
+          return;
+        }
+
+        const history = Object.entries(data).map(([key, value]) => ({
+          id: key,
+          voltage: Number(value.voltage) || 0,
+          current: Number(value.current) || 0,
+          state: value.state || '',
+          timestamp: parseTimestamp(value.timestamp) || 0,
+          formattedTime: value.formattedTime || formatTime(value.timestamp)
+        }));
+
+        // Sort by timestamp ascending
+        history.sort((a, b) => a.timestamp - b.timestamp);
+        setChargerHistory(history);
+        setStats({ total: history.length });
+        console.log('✅ Charger history loaded:', history.length, 'records');
+      },
+      (error) => {
+        console.error('❌ Charger history listener error:', error);
       }
-
-      const history = Object.entries(data).map(([key, value]) => ({
-        id: key,
-        voltage: Number(value.voltage) || 0,
-        current: Number(value.current) || 0,
-        state: value.state || '',
-        timestamp: parseTimestamp(value.timestamp) || 0,
-        formattedTime: value.formattedTime || formatTime(value.timestamp)
-      }));
-
-      // Sort by timestamp ascending
-      history.sort((a, b) => a.timestamp - b.timestamp);
-      setChargerHistory(history);
-      setStats({ total: history.length });
-      console.log('📊 Charger history loaded:', history.length, 'records');
-    });
+    );
   }, []);
 
   const handleDoneButton = async () => {
