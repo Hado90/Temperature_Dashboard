@@ -663,6 +663,68 @@ const BatteryChargerDashboard = () => {
                   angle={-45}
                   textAnchor="end"
                   height={80}
+                  interval={Math.floor(chargerChartData.length / 15)}
+                />
+                <YAxis 
+                  yAxisId="left"
+                  stroke="#10b981"
+                  style={{ fontSize: '12px' }}
+                  label={{ value: 'Voltage (V)', angle: -90, position: 'insideLeft' }}
+                />
+                <YAxis 
+                  yAxisId="right"
+                  orientation="right"
+                  stroke="#8b5cf6"
+                  style={{ fontSize: '12px' }}
+                  label={{ value: 'Current (A)', angle: 90, position: 'insideRight' }}
+                />
+                <Tooltip content={<ChargerTooltip />} />
+                <Legend wrapperStyle={{ paddingTop: '20px' }} />
+                <Line 
+                  yAxisId="left"
+                  type="monotone" 
+                  dataKey="voltage" 
+                  stroke="#10b981" 
+                  strokeWidth={2}
+                  dot={false}
+                  name="Voltage (V)"
+                  activeDot={{ r: 6 }}
+                />
+                <Line 
+                  yAxisId="right"
+                  type="monotone" 
+                  dataKey="current" 
+                  stroke="#8b5cf6" 
+                  strokeWidth={2}
+                  dot={false}
+                  name="Current (A)"
+                  activeDot={{ r: 6 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-96 flex items-center justify-center text-gray-400">
+              <div className="text-center">
+                <Activity className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                <p>No data logged yet. Waiting for charging cycle to start...</p>
+                <p className="text-sm mt-2">Logging will start when state changes from <strong>idle</strong>.</p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="text-center mt-8 text-gray-500 text-sm">
+          <p>Battery Charger Monitor - Real-time Data Logging per Charging Cycle</p>
+          <p className="mt-1">Auto-logging active when charger state is not idle • Data clears on DONE</p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default BatteryChargerDashboard;
+                  height={80}
                   interval={Math.floor(tempChartData.length / 15)}
                 />
                 <YAxis 
