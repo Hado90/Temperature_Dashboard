@@ -42,6 +42,7 @@ const BatteryChargerDashboard = () => {
   const [isLogging, setIsLogging] = useState(false);
   const [loggingStartTime, setLoggingStartTime] = useState(null);
   const previousStateRef = useRef('idle');
+  const currentChargerStateRef = useRef('idle'); // Track current charger state
   
   // UI states
   const [loading, setLoading] = useState(true);
@@ -131,9 +132,16 @@ const BatteryChargerDashboard = () => {
         setLatestTemp(tempData);
         console.log('✅ Temperature updated:', tempData);
 
-        // ALWAYS log temperature when received, regardless of state
-        console.log('📝 FORCE LOGGING temperature data');
-        logTemperatureData(tempData);
+        // LOG ONLY IF CHARGER STATE IS NOT IDLE
+        const chargerState = currentChargerStateRef.current;
+        const isCharging = chargerState !== 'idle' && chargerState !== 'Unknown';
+        
+        if (isCharging) {
+          console.log('📝 LOGGING temperature - Charger state:', chargerState, '(charging active)');
+          logTemperatureData(tempData);
+        } else {
+          console.log('⏸️ NOT LOGGING temperature - Charger state:', chargerState, '(idle/unknown)');
+        }
       },
       (error) => {
         console.error('❌ Temperature listener error:', error);
@@ -196,33 +204,44 @@ const BatteryChargerDashboard = () => {
       timestamp: parseTimestamp(data.timestamp) || Date.now()
     };
     
+    // Update ref for temperature logging to access
+    currentChargerStateRef.current = chargerData.state;
+    
     setLatestCharger(chargerData);
     console.log('✅ Charger updated:', chargerData);
 
     // Check state and auto-manage logging
     handleStateChange(chargerData.state);
 
-    // FORCE LOG: Always try to log if state is not idle
-    const shouldLog = chargerData.state !== 'idle' && chargerData.state !== 'Unknown';
+    // LOG ONLY IF STATE IS NOT IDLE (charging in progress)
+    const isCharging = chargerData.state !== 'idle' && chargerData.state !== 'Unknown';
     
-    if (shouldLog) {
-      console.log('📝 FORCE LOGGING charger data (state:', chargerData.state, ')');
+    if (isCharging) {
+      console.log('📝 LOGGING charger data - State:', chargerData.state, '(charging active)');
       logChargerData(chargerData);
     } else {
-      console.log('⏸️ Skipping log - state is:', chargerData.state);
+      console.log('⏸️ NOT LOGGING charger - State:', chargerData.state, '(idle/unknown)');
     }
   };
 
   const handleStateChange = (currentState) => {
     const previousState = previousStateRef.current;
     
-    console.log('🔄 State check - Previous:', previousState, '→ Current:', currentState, '| Logging:', isLogging);
+    console.log('🔄 State change detected:');
+    console.log('   Previous:', previousState);
+    console.log('   Current:', currentState);
+    console.log('   isLogging:', isLogging);
     
-    // SIMPLIFIED LOGIC: Log whenever state is NOT idle
+    // SIMPLIFIED LOGIC: Log whenever state is NOT idle or Unknown
     const shouldLog = currentState !== 'idle' && currentState !== 'Unknown';
     
+    console.log('   Should log?', shouldLog ? '✅ YES' : '❌ NO');
+    
     if (shouldLog && !isLogging) {
-      console.log('🟢 STARTING LOGGING - State is:', currentState);
+      console.log('🟢 ============================================');
+      console.log('   STARTING LOGGING SESSION');
+      console.log('   State:', currentState);
+      console.log('============================================');
       setIsLogging(true);
       if (!loggingStartTime) {
         setLoggingStartTime(Date.now());
@@ -230,7 +249,10 @@ const BatteryChargerDashboard = () => {
     }
     
     if (!shouldLog && isLogging) {
-      console.log('🔴 STOPPING LOGGING - State is:', currentState);
+      console.log('🔴 ============================================');
+      console.log('   STOPPING LOGGING SESSION');
+      console.log('   State returned to:', currentState);
+      console.log('============================================');
       setIsLogging(false);
     }
 
