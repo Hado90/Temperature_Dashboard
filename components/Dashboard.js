@@ -231,30 +231,34 @@ const BatteryChargerDashboard = () => {
     console.log('   isLogging:', isLogging);
     
     // SIMPLIFIED LOGIC: Log whenever state is NOT idle or Unknown
-  const handleStateChange = (currentState) => {
-  const shouldLog =
-    currentState !== 'idle' &&
-    currentState !== 'Unknown';
-
-  if (shouldLog && !isLoggingRef.current) {
-    console.log('🟢 LOGGING START - State:', currentState);
-
-    isLoggingRef.current = true;
-    setIsLogging(true);
-    setLoggingStartTime(Date.now());
-  }
-
-  if (!shouldLog && isLoggingRef.current) {
-    console.log('🔴 LOGGING STOP - State:', currentState);
-
-    isLoggingRef.current = false;
-    setIsLogging(false);
-  }
-
-  previousStateRef.current = currentState;
-};
-
-
+    const handleStateChange = (currentState) => {
+      const shouldLog =
+        currentState !== 'idle' &&
+        currentState !== 'Unknown';
+    
+      console.log('🔄 Charger state:', currentState);
+      console.log('📝 shouldLog:', shouldLog);
+      console.log('📝 isLoggingRef:', isLoggingRef.current);
+    
+      // START LOGGING
+      if (shouldLog && !isLoggingRef.current) {
+        console.log('🟢 LOGGING START');
+    
+        isLoggingRef.current = true;
+        setIsLogging(true);
+        setLoggingStartTime(Date.now());
+      }
+    
+      // STOP LOGGING
+      if (!shouldLog && isLoggingRef.current) {
+        console.log('🔴 LOGGING STOP');
+    
+        isLoggingRef.current = false;
+        setIsLogging(false);
+      }
+    
+      previousStateRef.current = currentState;
+    };
   const logTemperatureData = async (tempData) => {
     if (!window.firebaseInstances) {
       console.error('❌ Cannot log temperature - Firebase not initialized');
@@ -826,4 +830,5 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
