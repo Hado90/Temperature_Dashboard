@@ -43,6 +43,7 @@ const BatteryChargerDashboard = () => {
   const [loggingStartTime, setLoggingStartTime] = useState(null);
   const previousStateRef = useRef('idle');
   const currentChargerStateRef = useRef('idle'); // Track current charger state
+  const isLoggingRef = useRef(false); // 🔑 KUNCI logging realtime
   
   // UI states
   const [loading, setLoading] = useState(true);
@@ -52,6 +53,10 @@ const BatteryChargerDashboard = () => {
   useEffect(() => {
     initFirebase();
   }, []);
+  
+  useEffect(() => {
+  isLoggingRef.current = isLogging;
+}, [isLogging]);
 
   const initFirebase = async () => {
     try {
@@ -133,15 +138,11 @@ const BatteryChargerDashboard = () => {
         console.log('✅ Temperature updated:', tempData);
 
         // LOG ONLY IF CHARGER STATE IS NOT IDLE
-        const chargerState = currentChargerStateRef.current;
-        const isCharging = chargerState !== 'idle' && chargerState !== 'Unknown';
-        
-        if (isCharging) {
-          console.log('📝 LOGGING temperature - Charger state:', chargerState, '(charging active)');
-          logTemperatureData(tempData);
-        } else {
-          console.log('⏸️ NOT LOGGING temperature - Charger state:', chargerState, '(idle/unknown)');
-        }
+        if (isLoggingRef.current) {
+            logTemperatureData(tempData);
+          } else {
+            console.log('⏸️ Temperature skipped (logging OFF)');
+          }
       },
       (error) => {
         console.error('❌ Temperature listener error:', error);
@@ -160,25 +161,25 @@ const BatteryChargerDashboard = () => {
         const data = snapshot.val();
         console.log('⚡ Charger raw data:', data);
         
-        if (!data) {
-          console.warn('⚠️ No charger data found at chargerData/latest');
+        // if (!data) {
+        //   console.warn('⚠️ No charger data found at chargerData/latest');
           
-          // Try alternative path
-          const chargerRefRealtime = ref(rtdb, 'chargerData/realtime');
-          console.log('🔗 Trying alternative path: chargerData/realtime');
+        //   // Try alternative path
+        //   const chargerRefRealtime = ref(rtdb, 'chargerData/realtime');
+        //   console.log('🔗 Trying alternative path: chargerData/realtime');
           
-          onValue(chargerRefRealtime, (snap) => {
-            const altData = snap.val();
-            console.log('⚡ Charger data from realtime path:', altData);
-            if (altData) {
-              processChargerData(altData);
-            }
-          }, (err) => {
-            console.error('❌ Alternative path also failed:', err);
-          });
+        //   onValue(chargerRefRealtime, (snap) => {
+        //     const altData = snap.val();
+        //     console.log('⚡ Charger data from realtime path:', altData);
+        //     if (altData) {
+        //       processChargerData(altData);
+        //     }
+        //   }, (err) => {
+        //     console.error('❌ Alternative path also failed:', err);
+        //   });
           
-          return;
-        }
+        //   return;
+        // }
 
         processChargerData(data);
       },
@@ -214,13 +215,10 @@ const BatteryChargerDashboard = () => {
     handleStateChange(chargerData.state);
 
     // LOG ONLY IF STATE IS NOT IDLE (charging in progress)
-    const isCharging = chargerData.state !== 'idle' && chargerData.state !== 'Unknown';
-    
-    if (isCharging) {
-      console.log('📝 LOGGING charger data - State:', chargerData.state, '(charging active)');
+    if (isLoggingRef.current) {
       logChargerData(chargerData);
     } else {
-      console.log('⏸️ NOT LOGGING charger - State:', chargerData.state, '(idle/unknown)');
+      console.log('⏸️ Charger skipped (logging OFF)');
     }
   };
 
@@ -233,31 +231,29 @@ const BatteryChargerDashboard = () => {
     console.log('   isLogging:', isLogging);
     
     // SIMPLIFIED LOGIC: Log whenever state is NOT idle or Unknown
-    const shouldLog = currentState !== 'idle' && currentState !== 'Unknown';
-    
-    console.log('   Should log?', shouldLog ? '✅ YES' : '❌ NO');
-    
-    if (shouldLog && !isLogging) {
-      console.log('🟢 ============================================');
-      console.log('   STARTING LOGGING SESSION');
-      console.log('   State:', currentState);
-      console.log('============================================');
-      setIsLogging(true);
-      if (!loggingStartTime) {
-        setLoggingStartTime(Date.now());
-      }
-    }
-    
-    if (!shouldLog && isLogging) {
-      console.log('🔴 ============================================');
-      console.log('   STOPPING LOGGING SESSION');
-      console.log('   State returned to:', currentState);
-      console.log('============================================');
-      setIsLogging(false);
-    }
+  const handleStateChange = (currentState) => {
+  const shouldLog =
+    currentState !== 'idle' &&
+    currentState !== 'Unknown';
 
-    previousStateRef.current = currentState;
-  };
+  if (shouldLog && !isLoggingRef.current) {
+    console.log('🟢 LOGGING START - State:', currentState);
+
+    isLoggingRef.current = true;
+    setIsLogging(true);
+    setLoggingStartTime(Date.now());
+  }
+
+  if (!shouldLog && isLoggingRef.current) {
+    console.log('🔴 LOGGING STOP - State:', currentState);
+
+    isLoggingRef.current = false;
+    setIsLogging(false);
+  }
+
+  previousStateRef.current = currentState;
+};
+
 
   const logTemperatureData = async (tempData) => {
     if (!window.firebaseInstances) {
@@ -830,3 +826,4 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
