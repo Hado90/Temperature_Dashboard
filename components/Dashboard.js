@@ -133,8 +133,10 @@ const BatteryChargerDashboard = () => {
 
         // Log temperature if logging is active
         if (isLogging) {
-          console.log('📝 Logging temperature data...');
+          console.log('📝 Attempting to log temperature (logging=true)...');
           logTemperatureData(tempData);
+        } else {
+          console.log('⏸️ Logging disabled, not saving temperature');
         }
       },
       (error) => {
@@ -206,35 +208,50 @@ const BatteryChargerDashboard = () => {
 
     // Log charger data if logging is active
     if (isLogging) {
-      console.log('📝 Logging charger data...');
+      console.log('📝 Attempting to log charger data (logging=true)...');
       logChargerData(chargerData);
+    } else {
+      console.log('⏸️ Logging disabled, not saving charger data');
     }
   };
 
   const handleStateChange = (currentState) => {
     const previousState = previousStateRef.current;
     
+    console.log('🔄 State check - Previous:', previousState, '→ Current:', currentState, '| Logging:', isLogging);
+    
+    // Define charging states
+    const chargingStates = ['CC', 'CV', 'TRANS', 'CC-TRANS-CV'];
+    const isChargingState = chargingStates.includes(currentState);
+    
     // Start logging when transitioning from idle to charging states
-    if (previousState === 'idle' && currentState !== 'idle' && currentState !== 'Unknown' && currentState !== 'DONE') {
+    if (previousState === 'idle' && isChargingState) {
       console.log('🟢 Starting logging: state changed from idle to', currentState);
       setIsLogging(true);
       setLoggingStartTime(Date.now());
     }
     
-    // Keep logging active during charging cycle (CC, CV, TRANS)
-    if (currentState === 'CC' || currentState === 'CV' || currentState === 'TRANS' || currentState === 'CC-TRANS-CV') {
-      if (!isLogging) {
-        console.log('🟢 Resuming logging for state:', currentState);
-        setIsLogging(true);
-        if (!loggingStartTime) {
-          setLoggingStartTime(Date.now());
-        }
+    // IMPORTANT: Auto-start logging if currently in charging state but not logging yet
+    // This handles cases where dashboard loads while already charging
+    if (isChargingState && !isLogging) {
+      console.log('🟢 Auto-starting logging - already in charging state:', currentState);
+      setIsLogging(true);
+      if (!loggingStartTime) {
+        setLoggingStartTime(Date.now());
       }
     }
 
     // Stop logging when DONE (but don't auto-clear, wait for user button)
-    if (currentState === 'DONE' && isLogging) {
-      console.log('🟡 Charging complete (DONE). Logging stopped. Press DONE button to clear data.');
+    if (currentState === 'DONE') {
+      if (isLogging) {
+        console.log('🟡 Charging complete (DONE). Logging stopped. Press DONE button to clear data.');
+        setIsLogging(false);
+      }
+    }
+
+    // Stop logging if back to idle (canceled charging)
+    if (currentState === 'idle' && isLogging) {
+      console.log('🔴 Charging canceled - returned to idle. Logging stopped.');
       setIsLogging(false);
     }
 
@@ -242,41 +259,60 @@ const BatteryChargerDashboard = () => {
   };
 
   const logTemperatureData = async (tempData) => {
-    if (!window.firebaseInstances) return;
+    if (!window.firebaseInstances) {
+      console.error('❌ Cannot log temperature - Firebase not initialized');
+      return;
+    }
 
     try {
       const { rtdb, ref, push, set } = window.firebaseInstances;
       const historyRef = ref(rtdb, 'sensorData/history');
       const newRef = push(historyRef);
       
-      await set(newRef, {
+      const logData = {
         celsius: tempData.celsius,
         fahrenheit: tempData.fahrenheit,
         timestamp: tempData.timestamp,
         formattedTime: formatTime(tempData.timestamp)
-      });
+      };
+      
+      await set(newRef, logData);
+      console.log('✅ Temperature logged:', logData.celsius, '°C at', logData.formattedTime);
     } catch (error) {
       console.error('❌ Error logging temperature:', error);
+      console.error('Error details:', error.message);
     }
   };
 
   const logChargerData = async (chargerData) => {
-    if (!window.firebaseInstances) return;
+    if (!window.firebaseInstances) {
+      console.error('❌ Cannot log charger data - Firebase not initialized');
+      return;
+    }
 
     try {
       const { rtdb, ref, push, set } = window.firebaseInstances;
       const historyRef = ref(rtdb, 'chargerData/history');
       const newRef = push(historyRef);
       
-      await set(newRef, {
+      const logData = {
         voltage: chargerData.voltage,
         current: chargerData.current,
         state: chargerData.state,
         timestamp: chargerData.timestamp,
         formattedTime: formatTime(chargerData.timestamp)
-      });
+      };
+      
+      await set(newRef, logData);
+      console.log('✅ Charger logged:', logData.voltage, 'V', logData.current, 'A at', logData.formattedTime);
     } catch (error) {
       console.error('❌ Error logging charger data:', error);
+      console.error('Error details:', error.message);
+      
+      if (error.code === 'PERMISSION_DENIED') {
+        console.error('🚫 PERMISSION DENIED - Cannot write to chargerData/history');
+        console.error('Check Firebase Rules - .write permission needed');
+      }
     }
   };
 
@@ -360,6 +396,23 @@ const BatteryChargerDashboard = () => {
       }
     );
   }, []);
+
+  const handleManualStartLogging = () => {
+    console.log('🔵 Manual logging start triggered');
+    setIsLogging(true);
+    setManualLoggingMode(true);
+    if (!loggingStartTime) {
+      setLoggingStartTime(Date.now());
+    }
+    alert('✅ Logging dimulai secara manual');
+  };
+
+  const handleManualStopLogging = () => {
+    console.log('🔴 Manual logging stop triggered');
+    setIsLogging(false);
+    setManualLoggingMode(false);
+    alert('⏸️ Logging dihentikan secara manual');
+  };
 
   const handleDoneButton = async () => {
     if (!latestCharger || latestCharger.state !== 'DONE') {
@@ -486,6 +539,7 @@ const BatteryChargerDashboard = () => {
             
             {/* Logging Status Indicator */}
             <div className="flex items-center gap-4">
+              {/* Logging status badge */}
               <div className={`px-4 py-2 rounded-xl flex items-center gap-2 ${
                 isLogging ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
               }`}>
@@ -494,6 +548,27 @@ const BatteryChargerDashboard = () => {
                   {isLogging ? 'Logging Active' : 'Standby'}
                 </span>
               </div>
+
+              {/* Manual logging control buttons */}
+              {!isLogging && latestCharger?.state !== 'DONE' && (
+                <button 
+                  onClick={handleManualStartLogging}
+                  className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-xl transition-colors text-sm font-medium"
+                  title="Start logging manually"
+                >
+                  Start Logging
+                </button>
+              )}
+              
+              {isLogging && manualLoggingMode && (
+                <button 
+                  onClick={handleManualStopLogging}
+                  className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl transition-colors text-sm font-medium"
+                  title="Stop logging manually"
+                >
+                  Stop Logging
+                </button>
+              )}
               
               <button 
                 onClick={loadHistoryData}
