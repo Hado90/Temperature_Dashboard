@@ -38,25 +38,52 @@ const BatteryChargerDashboard = () => {
   const [tempHistory, setTempHistory] = useState([]);
   const [chargerHistory, setChargerHistory] = useState([]);
   
-  // Logging state
-  const [isLogging, setIsLogging] = useState(false);
+  // Logging state - CONTROLLED BY CHARGER STATE
+  const [currentChargerState, setCurrentChargerState] = useState('idle');
   const [loggingStartTime, setLoggingStartTime] = useState(null);
-  const previousStateRef = useRef('idle');
-  const currentChargerStateRef = useRef('idle'); // Track current charger state
-  const isLoggingRef = useRef(false); // 🔑 KUNCI logging realtime
   
   // UI states
   const [loading, setLoading] = useState(true);
   const [doneLoading, setDoneLoading] = useState(false);
   const [stats, setStats] = useState({ total: 0 });
 
+  // Firebase refs
+  const firebaseInitialized = useRef(false);
+
+  // Calculate if logging should be active based on charger state
+  const isLogging = currentChargerState !== 'idle' && currentChargerState !== 'Unknown' && currentChargerState !== '';
+
+  // useEffect to monitor state changes and log them
   useEffect(() => {
-    initFirebase();
+    console.log('📊 STATE MONITOR:');
+    console.log('   Current charger state:', currentChargerState);
+    console.log('   Is logging active?', isLogging ? '✅ YES' : '❌ NO');
+    
+    if (isLogging && !loggingStartTime) {
+      const startTime = Date.now();
+      setLoggingStartTime(startTime);
+      console.log('🟢 ========================================');
+      console.log('   LOGGING SESSION STARTED');
+      console.log('   State:', currentChargerState);
+      console.log('   Time:', new Date(startTime).toLocaleTimeString('id-ID'));
+      console.log('========================================');
+    }
+    
+    if (!isLogging && loggingStartTime) {
+      console.log('🔴 ========================================');
+      console.log('   LOGGING SESSION ENDED');
+      console.log('   State:', currentChargerState);
+      console.log('========================================');
+      setLoggingStartTime(null);
+    }
+  }, [currentChargerState, isLogging, loggingStartTime]);
+
+  useEffect(() => {
+    if (!firebaseInitialized.current) {
+      initFirebase();
+      firebaseInitialized.current = true;
+    }
   }, []);
-  
-  useEffect(() => {
-  isLoggingRef.current = isLogging;
-}, [isLogging]);
 
   const initFirebase = async () => {
     try {
@@ -110,10 +137,65 @@ const BatteryChargerDashboard = () => {
       return;
     }
 
-    const { rtdb, ref, onValue } = window.firebaseInstances;
+    const { rtdb, ref, onValue, push, set } = window.firebaseInstances;
     console.log('📡 Setting up realtime listeners...');
 
-    // Listen to temperature realtime
+    // ========================================
+    // LISTENER 1: CHARGER DATA (MASTER - Controls logging)
+    // ========================================
+    const chargerRefLatest = ref(rtdb, 'chargerData/latest');
+    console.log('🔗 Subscribing to: chargerData/latest');
+    
+    onValue(chargerRefLatest, 
+      (snapshot) => {
+        console.log('📥 Charger snapshot received');
+        const data = snapshot.val();
+        console.log('⚡ Charger raw data:', data);
+        
+        if (!data) {
+          console.warn('⚠️ No charger data found at chargerData/latest');
+          return;
+        }
+
+        const chargerData = {
+          voltage: Number(data.voltage) || 0,
+          current: Number(data.current) || 0,
+          state: data.state || 'Unknown',
+          timestamp: parseTimestamp(data.timestamp) || Date.now()
+        };
+        
+        // Update state FIRST - this controls logging
+        setCurrentChargerState(chargerData.state);
+        setLatestCharger(chargerData);
+        
+        console.log('✅ Charger state updated:', chargerData.state);
+        console.log('   Voltage:', chargerData.voltage, 'V');
+        console.log('   Current:', chargerData.current, 'A');
+
+        // LOG CHARGER DATA if state is NOT idle
+        const shouldLog = chargerData.state !== 'idle' && chargerData.state !== 'Unknown';
+        
+        if (shouldLog) {
+          console.log('📝 Logging charger data...');
+          logChargerData(chargerData, push, set, ref, rtdb);
+        } else {
+          console.log('⏸️  Skipping charger log (state:', chargerData.state + ')');
+        }
+      },
+      (error) => {
+        console.error('❌ Charger listener error:', error);
+        console.error('Error code:', error.code);
+        console.error('Error message:', error.message);
+        
+        if (error.code === 'PERMISSION_DENIED') {
+          console.error('🚫 PERMISSION DENIED - Check Firebase rules!');
+        }
+      }
+    );
+
+    // ========================================
+    // LISTENER 2: TEMPERATURE DATA (SLAVE - Follows charger state)
+    // ========================================
     const tempRef = ref(rtdb, 'sensorData/temperature');
     console.log('🔗 Subscribing to: sensorData/temperature');
     
@@ -121,7 +203,7 @@ const BatteryChargerDashboard = () => {
       (snapshot) => {
         console.log('📥 Temperature snapshot received');
         const data = snapshot.val();
-        console.log('🌡️ Temperature raw data:', data);
+        console.log('🌡️  Temperature raw data:', data);
         
         if (!data) {
           console.warn('⚠️ No temperature data found');
@@ -135,14 +217,21 @@ const BatteryChargerDashboard = () => {
         };
         
         setLatestTemp(tempData);
-        console.log('✅ Temperature updated:', tempData);
+        console.log('✅ Temperature updated:', tempData.celsius, '°C');
 
-        // LOG ONLY IF CHARGER STATE IS NOT IDLE
-        if (isLoggingRef.current) {
-            logTemperatureData(tempData);
+        // LOG TEMPERATURE DATA - use callback to get latest charger state
+        setCurrentChargerState(prevState => {
+          const shouldLog = prevState !== 'idle' && prevState !== 'Unknown';
+          
+          if (shouldLog) {
+            console.log('📝 Logging temperature data (charger state:', prevState + ')');
+            logTemperatureData(tempData, push, set, ref, rtdb);
           } else {
-            console.log('⏸️ Temperature skipped (logging OFF)');
+            console.log('⏸️  Skipping temperature log (charger state:', prevState + ')');
           }
+          
+          return prevState; // Don't change state, just read it
+        });
       },
       (error) => {
         console.error('❌ Temperature listener error:', error);
@@ -151,148 +240,12 @@ const BatteryChargerDashboard = () => {
       }
     );
 
-    // Listen to charger realtime - TRY BOTH latest AND realtime
-    const chargerRefLatest = ref(rtdb, 'chargerData/latest');
-    console.log('🔗 Subscribing to: chargerData/latest');
-    
-    onValue(chargerRefLatest, 
-      (snapshot) => {
-        console.log('📥 Charger snapshot received (latest path)');
-        const data = snapshot.val();
-        console.log('⚡ Charger raw data:', data);
-        
-        // if (!data) {
-        //   console.warn('⚠️ No charger data found at chargerData/latest');
-          
-        //   // Try alternative path
-        //   const chargerRefRealtime = ref(rtdb, 'chargerData/realtime');
-        //   console.log('🔗 Trying alternative path: chargerData/realtime');
-          
-        //   onValue(chargerRefRealtime, (snap) => {
-        //     const altData = snap.val();
-        //     console.log('⚡ Charger data from realtime path:', altData);
-        //     if (altData) {
-        //       processChargerData(altData);
-        //     }
-        //   }, (err) => {
-        //     console.error('❌ Alternative path also failed:', err);
-        //   });
-          
-        //   return;
-        // }
-
-        processChargerData(data);
-      },
-      (error) => {
-        console.error('❌ Charger listener error:', error);
-        console.error('Error code:', error.code);
-        console.error('Error message:', error.message);
-        
-        if (error.code === 'PERMISSION_DENIED') {
-          console.error('🚫 PERMISSION DENIED - Check Firebase rules!');
-        }
-      }
-    );
-
     setLoading(false);
   };
 
-  const processChargerData = (data) => {
-    const chargerData = {
-      voltage: Number(data.voltage) || 0,
-      current: Number(data.current) || 0,
-      state: data.state || 'Unknown',
-      timestamp: parseTimestamp(data.timestamp) || Date.now()
-    };
-    
-    // Update ref for temperature logging to access
-    currentChargerStateRef.current = chargerData.state;
-    
-    setLatestCharger(chargerData);
-    console.log('✅ Charger updated:', chargerData);
-
-    // Check state and auto-manage logging
-    handleStateChange(chargerData.state);
-
-    // LOG ONLY IF STATE IS NOT IDLE (charging in progress)
-    if (isLoggingRef.current) {
-      logChargerData(chargerData);
-    } else {
-      console.log('⏸️ Charger skipped (logging OFF)');
-    }
-  };
-
-  const handleStateChange = (currentState) => {
-    const previousState = previousStateRef.current;
-    
-    console.log('🔄 State change detected:');
-    console.log('   Previous:', previousState);
-    console.log('   Current:', currentState);
-    console.log('   isLogging:', isLogging);
-    
-    // SIMPLIFIED LOGIC: Log whenever state is NOT idle or Unknown
-    const handleStateChange = (currentState) => {
-      const shouldLog =
-        currentState !== 'idle' &&
-        currentState !== 'Unknown';
-    
-      console.log('🔄 Charger state:', currentState);
-      console.log('📝 shouldLog:', shouldLog);
-      console.log('📝 isLoggingRef:', isLoggingRef.current);
-    
-      // START LOGGING
-      if (shouldLog && !isLoggingRef.current) {
-        console.log('🟢 LOGGING START');
-    
-        isLoggingRef.current = true;
-        setIsLogging(true);
-        setLoggingStartTime(Date.now());
-      }
-    
-      // STOP LOGGING
-      if (!shouldLog && isLoggingRef.current) {
-        console.log('🔴 LOGGING STOP');
-    
-        isLoggingRef.current = false;
-        setIsLogging(false);
-      }
-    
-      previousStateRef.current = currentState;
-    };
-  const logTemperatureData = async (tempData) => {
-    if (!window.firebaseInstances) {
-      console.error('❌ Cannot log temperature - Firebase not initialized');
-      return;
-    }
-
+  // Separate logging functions with explicit Firebase params
+  const logChargerData = async (chargerData, push, set, ref, rtdb) => {
     try {
-      const { rtdb, ref, push, set } = window.firebaseInstances;
-      const historyRef = ref(rtdb, 'sensorData/history');
-      const newRef = push(historyRef);
-      
-      const logData = {
-        celsius: tempData.celsius,
-        fahrenheit: tempData.fahrenheit,
-        timestamp: tempData.timestamp,
-        formattedTime: formatTime(tempData.timestamp)
-      };
-      
-      await set(newRef, logData);
-      console.log('✅ Temperature logged:', logData.celsius, '°C at', logData.formattedTime);
-    } catch (error) {
-      console.error('❌ Error logging temperature:', error);
-      console.error('Error details:', error.message);
-    }
-  };
-
-  const logChargerData = async (chargerData) => {
-    if (!window.firebaseInstances) {
-      console.error('❌ Cannot log charger data - Firebase not initialized');
-      return;
-    }
-
-    try {
-      const { rtdb, ref, push, set } = window.firebaseInstances;
       const historyRef = ref(rtdb, 'chargerData/history');
       const newRef = push(historyRef);
       
@@ -305,15 +258,32 @@ const BatteryChargerDashboard = () => {
       };
       
       await set(newRef, logData);
-      console.log('✅ Charger logged:', logData.voltage, 'V', logData.current, 'A at', logData.formattedTime);
+      console.log('✅ Charger data logged:', logData.voltage, 'V,', logData.current, 'A');
     } catch (error) {
       console.error('❌ Error logging charger data:', error);
-      console.error('Error details:', error.message);
       
       if (error.code === 'PERMISSION_DENIED') {
         console.error('🚫 PERMISSION DENIED - Cannot write to chargerData/history');
-        console.error('Check Firebase Rules - .write permission needed');
       }
+    }
+  };
+
+  const logTemperatureData = async (tempData, push, set, ref, rtdb) => {
+    try {
+      const historyRef = ref(rtdb, 'sensorData/history');
+      const newRef = push(historyRef);
+      
+      const logData = {
+        celsius: tempData.celsius,
+        fahrenheit: tempData.fahrenheit,
+        timestamp: tempData.timestamp,
+        formattedTime: formatTime(tempData.timestamp)
+      };
+      
+      await set(newRef, logData);
+      console.log('✅ Temperature data logged:', logData.celsius, '°C');
+    } catch (error) {
+      console.error('❌ Error logging temperature:', error);
     }
   };
 
@@ -332,12 +302,10 @@ const BatteryChargerDashboard = () => {
     
     onValue(tempHistoryRef, 
       (snapshot) => {
-        console.log('📥 Temperature history snapshot received');
         const data = snapshot.val();
-        console.log('🌡️ Temperature history raw data:', data);
         
         if (!data) {
-          console.warn('⚠️ No temperature history data');
+          console.log('⚠️ No temperature history data');
           setTempHistory([]);
           return;
         }
@@ -350,7 +318,6 @@ const BatteryChargerDashboard = () => {
           formattedTime: value.formattedTime || formatTime(value.timestamp)
         }));
 
-        // Sort by timestamp ascending
         history.sort((a, b) => a.timestamp - b.timestamp);
         setTempHistory(history);
         console.log('✅ Temperature history loaded:', history.length, 'records');
@@ -366,12 +333,10 @@ const BatteryChargerDashboard = () => {
     
     onValue(chargerHistoryRef, 
       (snapshot) => {
-        console.log('📥 Charger history snapshot received');
         const data = snapshot.val();
-        console.log('⚡ Charger history raw data:', data);
         
         if (!data) {
-          console.warn('⚠️ No charger history data');
+          console.log('⚠️ No charger history data');
           setChargerHistory([]);
           setStats({ total: 0 });
           return;
@@ -386,7 +351,6 @@ const BatteryChargerDashboard = () => {
           formattedTime: value.formattedTime || formatTime(value.timestamp)
         }));
 
-        // Sort by timestamp ascending
         history.sort((a, b) => a.timestamp - b.timestamp);
         setChargerHistory(history);
         setStats({ total: history.length });
@@ -413,6 +377,8 @@ const BatteryChargerDashboard = () => {
     try {
       const { rtdb, ref, remove } = window.firebaseInstances;
 
+      console.log('🗑️  Clearing all history...');
+
       // Clear temperature history
       const tempHistoryRef = ref(rtdb, 'sensorData/history');
       await remove(tempHistoryRef);
@@ -423,10 +389,9 @@ const BatteryChargerDashboard = () => {
       await remove(chargerHistoryRef);
       console.log('✅ Charger history cleared');
 
-      // Reset logging state
-      setIsLogging(false);
+      // Reset states
+      setCurrentChargerState('idle');
       setLoggingStartTime(null);
-      previousStateRef.current = 'idle';
       
       alert('✅ Semua data history berhasil dihapus. Siap untuk siklus charging baru.');
     } catch (error) {
@@ -523,13 +488,12 @@ const BatteryChargerDashboard = () => {
             
             {/* Logging Status Indicator */}
             <div className="flex items-center gap-4">
-              {/* Logging status badge */}
               <div className={`px-4 py-2 rounded-xl flex items-center gap-2 ${
                 isLogging ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
               }`}>
                 <div className={`w-3 h-3 rounded-full ${isLogging ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
                 <span className="font-medium text-sm">
-                  {isLogging ? 'Logging Active' : 'Standby'}
+                  {isLogging ? `Logging: ${currentChargerState}` : 'Standby (idle)'}
                 </span>
               </div>
               
@@ -544,10 +508,10 @@ const BatteryChargerDashboard = () => {
           </div>
         </div>
 
-        {/* Latest Values Cards - WITHOUT DATES */}
+        {/* Latest Values Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
           
-          {/* Temperature Celsius */}
+          {/* Temperature */}
           <div className="bg-gradient-to-br from-orange-500 to-red-500 rounded-2xl shadow-xl p-6 text-white">
             <div className="flex items-center justify-between mb-4">
               <div className="bg-white/20 p-3 rounded-xl">
@@ -597,9 +561,9 @@ const BatteryChargerDashboard = () => {
 
           {/* Charger Status */}
           <div className={`rounded-2xl shadow-xl p-6 text-white ${
-            latestCharger?.state === 'DONE' 
+            currentChargerState === 'DONE' 
               ? 'bg-gradient-to-br from-green-500 to-emerald-600'
-              : latestCharger?.state === 'idle'
+              : currentChargerState === 'idle'
               ? 'bg-gradient-to-br from-gray-400 to-gray-500'
               : 'bg-gradient-to-br from-blue-500 to-cyan-500'
           }`}>
@@ -612,7 +576,7 @@ const BatteryChargerDashboard = () => {
               </span>
             </div>
             <div className="text-4xl font-bold mb-2">
-              {latestCharger?.state || 'Unknown'}
+              {currentChargerState || 'Unknown'}
             </div>
             <p className="text-white/90 text-sm font-medium">
               Charger State
@@ -642,12 +606,12 @@ const BatteryChargerDashboard = () => {
               </div>
             </div>
 
-            {/* DONE Button - Only enabled when state is DONE */}
+            {/* DONE Button */}
             <button
               onClick={handleDoneButton}
-              disabled={doneLoading || !latestCharger || latestCharger.state !== 'DONE'}
+              disabled={doneLoading || currentChargerState !== 'DONE'}
               className={`px-6 py-3 rounded-xl font-semibold flex items-center gap-2 transition-all ${
-                latestCharger?.state === 'DONE'
+                currentChargerState === 'DONE'
                   ? 'bg-green-500 hover:bg-green-600 text-white shadow-lg hover:shadow-xl'
                   : 'bg-gray-200 text-gray-400 cursor-not-allowed'
               }`}
@@ -666,13 +630,13 @@ const BatteryChargerDashboard = () => {
             </button>
           </div>
 
-          {latestCharger?.state !== 'DONE' && (
+          {currentChargerState !== 'DONE' && (
             <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-3">
               <div className="flex items-start gap-2">
                 <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
                 <p className="text-sm text-blue-800">
                   Tombol DONE hanya aktif saat status charging adalah <strong>DONE</strong>. 
-                  Saat ditekan, semua data history akan dihapus untuk memulai siklus charging baru.
+                  Logging otomatis berjalan saat state bukan <strong>idle</strong>.
                 </p>
               </div>
             </div>
@@ -743,7 +707,7 @@ const BatteryChargerDashboard = () => {
               <div className="text-center">
                 <Activity className="w-16 h-16 mx-auto mb-4 opacity-50" />
                 <p>No data logged yet. Waiting for charging cycle to start...</p>
-                <p className="text-sm mt-2">Logging will start automatically when state changes from idle.</p>
+                <p className="text-sm mt-2">Logging will start when state changes from <strong>idle</strong>.</p>
               </div>
             </div>
           )}
@@ -768,67 +732,3 @@ const BatteryChargerDashboard = () => {
                   style={{ fontSize: '12px' }}
                   angle={-45}
                   textAnchor="end"
-                  height={80}
-                  interval={Math.floor(chargerChartData.length / 15)}
-                />
-                <YAxis 
-                  yAxisId="left"
-                  stroke="#10b981"
-                  style={{ fontSize: '12px' }}
-                  label={{ value: 'Voltage (V)', angle: -90, position: 'insideLeft' }}
-                />
-                <YAxis 
-                  yAxisId="right"
-                  orientation="right"
-                  stroke="#8b5cf6"
-                  style={{ fontSize: '12px' }}
-                  label={{ value: 'Current (A)', angle: 90, position: 'insideRight' }}
-                />
-                <Tooltip content={<ChargerTooltip />} />
-                <Legend wrapperStyle={{ paddingTop: '20px' }} />
-                <Line 
-                  yAxisId="left"
-                  type="monotone" 
-                  dataKey="voltage" 
-                  stroke="#10b981" 
-                  strokeWidth={2}
-                  dot={false}
-                  name="Voltage (V)"
-                  activeDot={{ r: 6 }}
-                />
-                <Line 
-                  yAxisId="right"
-                  type="monotone" 
-                  dataKey="current" 
-                  stroke="#8b5cf6" 
-                  strokeWidth={2}
-                  dot={false}
-                  name="Current (A)"
-                  activeDot={{ r: 6 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="h-96 flex items-center justify-center text-gray-400">
-              <div className="text-center">
-                <Activity className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                <p>No data logged yet. Waiting for charging cycle to start...</p>
-                <p className="text-sm mt-2">Logging will start automatically when state changes from idle.</p>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="text-center mt-8 text-gray-500 text-sm">
-          <p>Battery Charger Monitor - Real-time Data Logging per Charging Cycle</p>
-          <p className="mt-1">Auto-logging active during CC-TRANS-CV charging states • Data clears on DONE</p>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-export default BatteryChargerDashboard;
-
-
