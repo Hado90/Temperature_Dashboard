@@ -41,6 +41,7 @@ const BatteryChargerDashboard = () => {
   // Logging state
   const [isLogging, setIsLogging] = useState(false);
   const [loggingStartTime, setLoggingStartTime] = useState(null);
+  const [manualLoggingMode, setManualLoggingMode] = useState(false);
   const previousStateRef = useRef('idle');
   
   // UI states
