@@ -41,7 +41,6 @@ const BatteryChargerDashboard = () => {
   // Logging state
   const [isLogging, setIsLogging] = useState(false);
   const [loggingStartTime, setLoggingStartTime] = useState(null);
-  const [manualLoggingMode, setManualLoggingMode] = useState(false);
   const previousStateRef = useRef('idle');
   
   // UI states
@@ -132,13 +131,9 @@ const BatteryChargerDashboard = () => {
         setLatestTemp(tempData);
         console.log('✅ Temperature updated:', tempData);
 
-        // Log temperature if logging is active
-        if (isLogging) {
-          console.log('📝 Attempting to log temperature (logging=true)...');
-          logTemperatureData(tempData);
-        } else {
-          console.log('⏸️ Logging disabled, not saving temperature');
-        }
+        // ALWAYS log temperature when received, regardless of state
+        console.log('📝 FORCE LOGGING temperature data');
+        logTemperatureData(tempData);
       },
       (error) => {
         console.error('❌ Temperature listener error:', error);
@@ -204,15 +199,17 @@ const BatteryChargerDashboard = () => {
     setLatestCharger(chargerData);
     console.log('✅ Charger updated:', chargerData);
 
-    // Check state change and start/stop logging
+    // Check state and auto-manage logging
     handleStateChange(chargerData.state);
 
-    // Log charger data if logging is active
-    if (isLogging) {
-      console.log('📝 Attempting to log charger data (logging=true)...');
+    // FORCE LOG: Always try to log if state is not idle
+    const shouldLog = chargerData.state !== 'idle' && chargerData.state !== 'Unknown';
+    
+    if (shouldLog) {
+      console.log('📝 FORCE LOGGING charger data (state:', chargerData.state, ')');
       logChargerData(chargerData);
     } else {
-      console.log('⏸️ Logging disabled, not saving charger data');
+      console.log('⏸️ Skipping log - state is:', chargerData.state);
     }
   };
 
@@ -221,38 +218,19 @@ const BatteryChargerDashboard = () => {
     
     console.log('🔄 State check - Previous:', previousState, '→ Current:', currentState, '| Logging:', isLogging);
     
-    // Define charging states
-    const chargingStates = ['CC', 'CV', 'TRANS', 'CC-TRANS-CV'];
-    const isChargingState = chargingStates.includes(currentState);
+    // SIMPLIFIED LOGIC: Log whenever state is NOT idle
+    const shouldLog = currentState !== 'idle' && currentState !== 'Unknown';
     
-    // Start logging when transitioning from idle to charging states
-    if (previousState === 'idle' && isChargingState) {
-      console.log('🟢 Starting logging: state changed from idle to', currentState);
-      setIsLogging(true);
-      setLoggingStartTime(Date.now());
-    }
-    
-    // IMPORTANT: Auto-start logging if currently in charging state but not logging yet
-    // This handles cases where dashboard loads while already charging
-    if (isChargingState && !isLogging) {
-      console.log('🟢 Auto-starting logging - already in charging state:', currentState);
+    if (shouldLog && !isLogging) {
+      console.log('🟢 STARTING LOGGING - State is:', currentState);
       setIsLogging(true);
       if (!loggingStartTime) {
         setLoggingStartTime(Date.now());
       }
     }
-
-    // Stop logging when DONE (but don't auto-clear, wait for user button)
-    if (currentState === 'DONE') {
-      if (isLogging) {
-        console.log('🟡 Charging complete (DONE). Logging stopped. Press DONE button to clear data.');
-        setIsLogging(false);
-      }
-    }
-
-    // Stop logging if back to idle (canceled charging)
-    if (currentState === 'idle' && isLogging) {
-      console.log('🔴 Charging canceled - returned to idle. Logging stopped.');
+    
+    if (!shouldLog && isLogging) {
+      console.log('🔴 STOPPING LOGGING - State is:', currentState);
       setIsLogging(false);
     }
 
@@ -398,23 +376,6 @@ const BatteryChargerDashboard = () => {
     );
   }, []);
 
-  const handleManualStartLogging = () => {
-    console.log('🔵 Manual logging start triggered');
-    setIsLogging(true);
-    setManualLoggingMode(true);
-    if (!loggingStartTime) {
-      setLoggingStartTime(Date.now());
-    }
-    alert('✅ Logging dimulai secara manual');
-  };
-
-  const handleManualStopLogging = () => {
-    console.log('🔴 Manual logging stop triggered');
-    setIsLogging(false);
-    setManualLoggingMode(false);
-    alert('⏸️ Logging dihentikan secara manual');
-  };
-
   const handleDoneButton = async () => {
     if (!latestCharger || latestCharger.state !== 'DONE') {
       alert('⚠️ Tombol DONE hanya bisa ditekan saat status charging adalah DONE');
@@ -549,27 +510,6 @@ const BatteryChargerDashboard = () => {
                   {isLogging ? 'Logging Active' : 'Standby'}
                 </span>
               </div>
-
-              {/* Manual logging control buttons */}
-              {!isLogging && latestCharger?.state !== 'DONE' && (
-                <button 
-                  onClick={handleManualStartLogging}
-                  className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-xl transition-colors text-sm font-medium"
-                  title="Start logging manually"
-                >
-                  Start Logging
-                </button>
-              )}
-              
-              {isLogging && manualLoggingMode && (
-                <button 
-                  onClick={handleManualStopLogging}
-                  className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl transition-colors text-sm font-medium"
-                  title="Stop logging manually"
-                >
-                  Stop Logging
-                </button>
-              )}
               
               <button 
                 onClick={loadHistoryData}
