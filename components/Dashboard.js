@@ -104,102 +104,72 @@ const BatteryChargerDashboard = () => {
     });
   };
 
-// ===== BAGIAN YANG DIUBAH SAJA =====
-
-// Ganti fungsi handleSendConfiguration dengan yang ini:
-const handleSendConfiguration = async () => {
-  if (!window.firebaseInstances) {
-    alert('❌ Firebase not initialized');
-    return;
-  }
-
-  // Validate custom capacity if selected
-  let finalCapacity = parseInt(capacityChoice);
-  
-  if (capacityChoice === 'custom') {
-    if (!customCapacity || customCapacity.trim() === '') {
-      alert('⚠️ Masukkan nilai kapasitas custom!');
+  const handleSendConfiguration = async () => {
+    if (!window.firebaseInstances) {
+      alert('❌ Firebase not initialized');
       return;
     }
-    finalCapacity = parseInt(customCapacity);
-    if (isNaN(finalCapacity) || finalCapacity < 100 || finalCapacity > 5000) {
-      alert('⚠️ Kapasitas harus antara 100-5000 mAh!');
-      return;
-    }
-  }
 
-  setConfigSending(true);
-  
-  try {
-    const { rtdb, ref, set } = window.firebaseInstances;
+    // Validate custom capacity if selected
+    let finalCapacity = parseInt(capacityChoice);
     
-    const voltage = parseFloat(voltageChoice);
-    
-    // Calculate derived values
-    const vref = voltage - 0.2;
-    let iref = finalCapacity * 0.5 / 1000; // Convert mA to A
-    
-    // Max limit check (following Arduino code logic)
-    if (finalCapacity > 2200) {
-      iref = 1.1;
+    if (capacityChoice === 'custom') {
+      if (!customCapacity || customCapacity.trim() === '') {
+        alert('⚠️ Masukkan nilai kapasitas custom!');
+        return;
+      }
+      finalCapacity = parseInt(customCapacity);
+      if (isNaN(finalCapacity) || finalCapacity < 100 || finalCapacity > 5000) {
+        alert('⚠️ Kapasitas harus antara 100-5000 mAh!');
+        return;
+      }
     }
+
+    setConfigSending(true);
     
-    // ✅ PERBAIKAN: Langsung set status ke 'charging' agar ESP32 mulai
-    const configData = {
-      targetVoltage: voltage,
-      batteryCapacity: finalCapacity,
-      vref: vref,
-      iref: iref,
-      status: 'charging',  // ⬅️ UBAH: langsung 'charging' bukan 'configured'
-      timestamp: Date.now()
-    };
-    
-    console.log('📤 Sending config to RTDB:', configData);
-    
-    await set(ref(rtdb, 'config'), configData);
-    
-    console.log('✅ Configuration sent successfully with status: charging');
-    alert(`✅ Konfigurasi berhasil dikirim!\n\n` +
-          `Target: ${voltage}V\n` +
-          `Kapasitas: ${finalCapacity}mAh\n` +
-          `Vref: ${vref.toFixed(2)}V\n` +
-          `Iref: ${iref.toFixed(2)}A\n\n` +
-          `🚀 ESP32 akan mulai charging...`);
-    
-    // Wait a moment then switch to monitoring view
-    setTimeout(() => {
-      setShowConfig(false);
+    try {
+      const { rtdb, ref, set } = window.firebaseInstances;
+      
+      const voltage = parseFloat(voltageChoice);
+      
+      // Calculate derived values
+      const vref = voltage - 0.2;
+      let iref = finalCapacity * 0.5 / 1000; // Convert mA to A
+      
+      // Max limit check (following Arduino code logic)
+      if (finalCapacity > 2200) {
+        iref = 1.1;
+      }
+      
+      const configData = {
+        targetVoltage: voltage,
+        batteryCapacity: finalCapacity,
+        vref: vref,
+        iref: iref,
+        status: 'configured',
+        timestamp: Date.now()
+      };
+      
+      console.log('📤 Sending config to RTDB:', configData);
+      
+      await set(ref(rtdb, 'config'), configData);
+      
+      console.log('✅ Configuration sent successfully');
+      alert(`✅ Konfigurasi berhasil dikirim!\n\nTarget: ${voltage}V\nKapasitas: ${finalCapacity}mAh\nVref: ${vref.toFixed(2)}V\nIref: ${iref.toFixed(2)}A`);
+      
+      // Wait a moment then switch to monitoring view
+      setTimeout(() => {
+        setShowConfig(false);
+        setConfigSending(false);
+      }, 1000);
+      
+    } catch (error) {
+      console.error('❌ Error sending config:', error);
+      alert('❌ Gagal mengirim konfigurasi: ' + error.message);
       setConfigSending(false);
-    }, 1000);
-    
-  } catch (error) {
-    console.error('❌ Error sending config:', error);
-    alert('❌ Gagal mengirim konfigurasi: ' + error.message);
-    setConfigSending(false);
-  }
-};
-// ===== TAMBAHAN: Perbaiki checkConfiguration agar lebih robust =====
-// Ganti fungsi checkConfiguration dengan yang ini:
-const checkConfiguration = () => {
-  if (!window.firebaseInstances) return;
-  
-  const { rtdb, ref, onValue } = window.firebaseInstances;
-  
-  // Listen to configuration status
-  onValue(ref(rtdb, 'config/status'), (snapshot) => {
-    const status = snapshot.val();
-    console.log('📋 Config status:', status);
-    
-    // ✅ PERBAIKAN: Tambah pengecekan status 'charging'
-    // If status is 'charging' or 'running', show monitoring
-    // If status is 'idle' or null, show config screen
-    if (status === 'charging' || status === 'configured' || status === 'running') {
-      setShowConfig(false);
-    } else {
-      setShowConfig(true);
     }
-  });
-};
+  };
+
   const setupRealtimeListeners = () => {
     if (!window.firebaseInstances) {
       console.error('❌ Firebase instances not available');
@@ -854,4 +824,3 @@ const checkConfiguration = () => {
 };
 
 export default BatteryChargerDashboard;
-
