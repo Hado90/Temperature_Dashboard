@@ -34,7 +34,8 @@ const BatteryChargerDashboard = () => {
   const [previousState, setPreviousState] = useState('idle');
   const [isLoggingActive, setIsLoggingActive] = useState(false);
   const [loggingStartTime, setLoggingStartTime] = useState(null);
-  
+  const prevStateRef = useRef('idle');
+  const loggingActiveRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [doneLoading, setDoneLoading] = useState(false);
   const [stats, setStats] = useState({ total: 0 });
@@ -49,52 +50,52 @@ const BatteryChargerDashboard = () => {
     console.log('   Logging Active:', isLoggingActive);
     console.log('═══════════════════════════════════════');
 
-    // Normalize states for comparison (handle case variations)
-    const prevStateUpper = previousState.toUpperCase();
-    const currStateUpper = currentState.toUpperCase();
+    // // Normalize states for comparison (handle case variations)
+    // const prevStateUpper = previousState.toUpperCase();
+    // const currStateUpper = currentState.toUpperCase();
 
-    // RULE 1: If current state is IDLE - NO LOGGING
-    if (currStateUpper === 'IDLE') {
-      if (isLoggingActive) {
-        console.log('🔴 STOP LOGGING - State returned to IDLE');
-        setIsLoggingActive(false);
-        setLoggingStartTime(null);
-      } else {
-        console.log('⏸️  No logging - State is IDLE');
-      }
-      return;
-    }
+    // // RULE 1: If current state is IDLE - NO LOGGING
+    // if (currStateUpper === 'IDLE') {
+    //   if (isLoggingActive) {
+    //     console.log('🔴 STOP LOGGING - State returned to IDLE');
+    //     setIsLoggingActive(false);
+    //     setLoggingStartTime(null);
+    //   } else {
+    //     console.log('⏸️  No logging - State is IDLE');
+    //   }
+    //   return;
+    // }
 
-    // RULE 2: If current state is DETECT - NO LOGGING YET (waiting)
-    if (currStateUpper === 'DETECT') {
-      console.log('🟡 DETECT state - Waiting for state change to start logging');
-      return;
-    }
+    // // RULE 2: If current state is DETECT - NO LOGGING YET (waiting)
+    // if (currStateUpper === 'DETECT') {
+    //   console.log('🟡 DETECT state - Waiting for state change to start logging');
+    //   return;
+    // }
 
-    // RULE 3: KEY TRIGGER - Previous was DETECT, now changed to something else → START LOGGING
-    if (prevStateUpper === 'DETECT' && currStateUpper !== 'DETECT' && currStateUpper !== 'IDLE' && !isLoggingActive) {
-      console.log('🟢 ═══════════════════════════════════════');
-      console.log('   LOGGING SESSION STARTED');
-      console.log('   Trigger: DETECT → ' + currentState + ' transition detected');
-      console.log('   Time:', new Date().toLocaleTimeString('id-ID'));
-      console.log('═══════════════════════════════════════');
-      setIsLoggingActive(true);
-      setLoggingStartTime(Date.now());
-      return;
-    }
+    // // RULE 3: KEY TRIGGER - Previous was DETECT, now changed to something else → START LOGGING
+    // if (prevStateUpper === 'DETECT' && currStateUpper !== 'DETECT' && currStateUpper !== 'IDLE' && !isLoggingActive) {
+    //   console.log('🟢 ═══════════════════════════════════════');
+    //   console.log('   LOGGING SESSION STARTED');
+    //   console.log('   Trigger: DETECT → ' + currentState + ' transition detected');
+    //   console.log('   Time:', new Date().toLocaleTimeString('id-ID'));
+    //   console.log('═══════════════════════════════════════');
+    //   setIsLoggingActive(true);
+    //   setLoggingStartTime(Date.now());
+    //   return;
+    // }
 
-    // RULE 4: Continue logging for charging states
-    const chargingStates = ['CC', 'CV', 'TRANS', 'DONE'];
-    if (chargingStates.includes(currStateUpper)) {
-      if (isLoggingActive) {
-        console.log('✅ Continue logging - State:', currentState);
-      } else {
-        console.log('⚠️  In charging state (' + currentState + ') but logging not active');
-        console.log('   This might be mid-cycle. Previous state was:', previousState);
-      }
-    }
+    // // RULE 4: Continue logging for charging states
+    // const chargingStates = ['CC', 'CV', 'TRANS', 'DONE'];
+    // if (chargingStates.includes(currStateUpper)) {
+    //   if (isLoggingActive) {
+    //     console.log('✅ Continue logging - State:', currentState);
+    //   } else {
+    //     console.log('⚠️  In charging state (' + currentState + ') but logging not active');
+    //     console.log('   This might be mid-cycle. Previous state was:', previousState);
+    //   }
+    // }
 
-  }, [currentState, previousState, isLoggingActive]);
+  }, [currentState, previousState]);
 
   useEffect(() => {
     if (!firebaseInitialized.current) {
@@ -183,21 +184,49 @@ const BatteryChargerDashboard = () => {
       };
       
       // Update states for state machine
-      setPreviousState(currentState);
-      setCurrentState(stateFromRTDB);
-      setLatestCharger(chargerData);
-
-      // Determine if we should log THIS data point
-      const shouldLog = isLoggingActive;
+      const incomingState = String(data.state || 'Unknown');
+      const prevState = prevStateRef.current;
       
-      console.log('   📝 Should log this data?', shouldLog ? 'YES ✅' : 'NO ❌');
-      console.log('   Reason:', shouldLog ? 'Logging is active' : 'Logging not active (waiting for idle→detect→CC)');
+      const prevUpper = prevState.toUpperCase();
+      const currUpper = incomingState.toUpperCase();
       
-      if (shouldLog) {
-        console.log('   💾 Writing to chargerData/history...');
-        logChargerData(chargerData, push, set, ref, rtdb);
+      // ================= STATE MACHINE =================
+      
+      // RULE 1: IDLE → STOP LOGGING
+      if (currUpper === 'IDLE') {
+        loggingActiveRef.current = false;
+        setIsLoggingActive(false); // ✅ SINKRON UI
       }
       
+      // RULE 2: DETECT → WAIT
+      if (currUpper === 'DETECT') {
+        // Tidak melakukan apa-apa
+      }
+      
+      // RULE 3: DETECT → ANYTHING ELSE → START LOGGING
+      if (
+        prevUpper === 'DETECT' &&
+        currUpper !== 'DETECT' &&
+        currUpper !== 'IDLE'
+      ) {
+        loggingActiveRef.current = true;
+        setIsLoggingActive(true); // ✅ SINKRON UI
+        setLoggingStartTime(Date.now());
+        console.log('🟢 LOGGING START:', prevState, '→', incomingState);
+      }
+      
+      // ================= UPDATE REFS =================
+      prevStateRef.current = incomingState;
+      
+      // ================= UPDATE UI STATE =================
+      setPreviousState(prevState);
+      setCurrentState(incomingState);
+      setLatestCharger(chargerData);
+      
+      // ================= LOGGING DECISION =================
+      if (loggingActiveRef.current) {
+        logChargerData(chargerData, push, set, ref, rtdb);
+      }
       console.log('═══════════════════════════════════════\n');
     }, (error) => {
       console.error('❌ Charger listener error:', error);
@@ -236,16 +265,9 @@ const BatteryChargerDashboard = () => {
       setLatestTemp(tempData);
 
       // Check current logging state
-      const shouldLog = isLoggingActive;
-      console.log('   📝 Should log this data?', shouldLog ? 'YES ✅' : 'NO ❌');
-      console.log('   Current charger state:', currentState);
-      console.log('   Logging active:', isLoggingActive);
-      
-      if (shouldLog) {
-        console.log('   💾 Writing to sensorData/history...');
+      if (loggingActiveRef.current) {
         logTemperatureData(tempData, push, set, ref, rtdb);
-      }
-      
+      }    
       console.log('═══════════════════════════════════════\n');
     }, (error) => {
       console.error('❌ Temperature listener error:', error);
@@ -636,3 +658,4 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
