@@ -40,7 +40,7 @@ const BatteryChargerDashboard = () => {
   const [stats, setStats] = useState({ total: 0 });
   const firebaseInitialized = useRef(false);
 
-  // State machine logic - logging only starts after idle → detect → CC transition
+  // State machine logic - logging starts when DETECT changes to anything else
   useEffect(() => {
     console.log('═══════════════════════════════════════');
     console.log('📊 STATE MACHINE UPDATE');
@@ -49,29 +49,33 @@ const BatteryChargerDashboard = () => {
     console.log('   Logging Active:', isLoggingActive);
     console.log('═══════════════════════════════════════');
 
-    // RULE 1: idle state - NO LOGGING
-    if (currentState === 'idle') {
+    // Normalize states for comparison (handle case variations)
+    const prevStateUpper = previousState.toUpperCase();
+    const currStateUpper = currentState.toUpperCase();
+
+    // RULE 1: If current state is IDLE - NO LOGGING
+    if (currStateUpper === 'IDLE') {
       if (isLoggingActive) {
-        console.log('🔴 STOP LOGGING - State returned to idle');
+        console.log('🔴 STOP LOGGING - State returned to IDLE');
         setIsLoggingActive(false);
         setLoggingStartTime(null);
       } else {
-        console.log('⏸️  No logging - State is idle');
+        console.log('⏸️  No logging - State is IDLE');
       }
       return;
     }
 
-    // RULE 2: detect state - NO LOGGING YET (waiting for CC)
-    if (currentState === 'detect') {
-      console.log('🟡 DETECT state - Waiting for CC to start logging');
+    // RULE 2: If current state is DETECT - NO LOGGING YET (waiting)
+    if (currStateUpper === 'DETECT') {
+      console.log('🟡 DETECT state - Waiting for state change to start logging');
       return;
     }
 
-    // RULE 3: Transition from detect → CC = START LOGGING
-    if (previousState === 'detect' && currentState === 'CC' && !isLoggingActive) {
+    // RULE 3: KEY TRIGGER - Previous was DETECT, now changed to something else → START LOGGING
+    if (prevStateUpper === 'DETECT' && currStateUpper !== 'DETECT' && currStateUpper !== 'IDLE' && !isLoggingActive) {
       console.log('🟢 ═══════════════════════════════════════');
       console.log('   LOGGING SESSION STARTED');
-      console.log('   Trigger: detect → CC transition');
+      console.log('   Trigger: DETECT → ' + currentState + ' transition detected');
       console.log('   Time:', new Date().toLocaleTimeString('id-ID'));
       console.log('═══════════════════════════════════════');
       setIsLoggingActive(true);
@@ -79,26 +83,15 @@ const BatteryChargerDashboard = () => {
       return;
     }
 
-    // RULE 4: Continue logging for charging states (CC, CV, TRANS, DONE)
+    // RULE 4: Continue logging for charging states
     const chargingStates = ['CC', 'CV', 'TRANS', 'DONE'];
-    if (chargingStates.includes(currentState) && !isLoggingActive) {
-      // Edge case: if somehow we're in charging state but not logging
-      // This could happen if dashboard loads mid-cycle
-      console.log('🟠 WARNING: In charging state but logging not active');
-      console.log('   This might be mid-cycle load. Checking previous state...');
-      
-      // Don't auto-start unless we have proper transition
-      if (previousState === 'detect' || previousState === 'CC' || previousState === 'CV') {
-        console.log('   Previous state was charging-related, starting logging');
-        setIsLoggingActive(true);
-        setLoggingStartTime(Date.now());
+    if (chargingStates.includes(currStateUpper)) {
+      if (isLoggingActive) {
+        console.log('✅ Continue logging - State:', currentState);
       } else {
-        console.log('   Previous state was not charging-related, waiting for proper cycle start');
+        console.log('⚠️  In charging state (' + currentState + ') but logging not active');
+        console.log('   This might be mid-cycle. Previous state was:', previousState);
       }
-    }
-
-    if (chargingStates.includes(currentState) && isLoggingActive) {
-      console.log('✅ Logging active - State:', currentState);
     }
 
   }, [currentState, previousState, isLoggingActive]);
@@ -175,9 +168,9 @@ const BatteryChargerDashboard = () => {
         return;
       }
 
-      // Extract state from RTDB
-      const stateFromRTDB = data.state || 'Unknown';
-      console.log('   📍 State from RTDB:', stateFromRTDB);
+      // Extract state from RTDB - PRESERVE ORIGINAL CASE
+      const stateFromRTDB = String(data.state || 'Unknown');
+      console.log('   📍 State from RTDB:', stateFromRTDB, '(original case preserved)');
       console.log('   🔋 Voltage:', data.voltage, 'V');
       console.log('   ⚡ Current:', data.current, 'A');
       console.log('   🕐 Timestamp:', data.timestamp);
@@ -356,7 +349,7 @@ const BatteryChargerDashboard = () => {
   }, []);
 
   const handleDoneButton = async () => {
-    if (currentState !== 'DONE') {
+    if (currentState.toUpperCase() !== 'DONE') {
       alert('⚠️ Tombol DONE hanya bisa ditekan saat status DONE');
       return;
     }
@@ -463,17 +456,17 @@ const BatteryChargerDashboard = () => {
             <div className="flex items-center gap-4">
               <div className={`px-4 py-2 rounded-xl flex items-center gap-2 ${
                 isLoggingActive ? 'bg-green-100 text-green-700' : 
-                currentState === 'detect' ? 'bg-yellow-100 text-yellow-700' :
+                currentState.toUpperCase() === 'DETECT' ? 'bg-yellow-100 text-yellow-700' :
                 'bg-gray-100 text-gray-500'
               }`}>
                 <div className={`w-3 h-3 rounded-full ${
                   isLoggingActive ? 'bg-green-500 animate-pulse' : 
-                  currentState === 'detect' ? 'bg-yellow-500 animate-pulse' :
+                  currentState.toUpperCase() === 'DETECT' ? 'bg-yellow-500 animate-pulse' :
                   'bg-gray-400'
                 }`} />
                 <span className="font-medium text-sm">
                   {isLoggingActive ? `Logging: ${currentState}` : 
-                   currentState === 'detect' ? 'Detecting...' :
+                   currentState.toUpperCase() === 'DETECT' ? 'Waiting for state change...' :
                    `Standby (${currentState})`}
                 </span>
               </div>
@@ -514,9 +507,9 @@ const BatteryChargerDashboard = () => {
           </div>
 
           <div className={`rounded-2xl shadow-xl p-6 text-white ${
-            currentState === 'DONE' ? 'bg-gradient-to-br from-green-500 to-emerald-600' :
-            currentState === 'idle' ? 'bg-gradient-to-br from-gray-400 to-gray-500' :
-            currentState === 'detect' ? 'bg-gradient-to-br from-yellow-500 to-orange-500' :
+            currentState.toUpperCase() === 'DONE' ? 'bg-gradient-to-br from-green-500 to-emerald-600' :
+            currentState.toUpperCase() === 'IDLE' ? 'bg-gradient-to-br from-gray-400 to-gray-500' :
+            currentState.toUpperCase() === 'DETECT' ? 'bg-gradient-to-br from-yellow-500 to-orange-500' :
             'bg-gradient-to-br from-blue-500 to-cyan-500'
           }`}>
             <div className="flex items-center justify-between mb-4">
@@ -543,9 +536,9 @@ const BatteryChargerDashboard = () => {
                 </p>
               </div>
             </div>
-            <button onClick={handleDoneButton} disabled={doneLoading || currentState !== 'DONE'}
+            <button onClick={handleDoneButton} disabled={doneLoading || currentState.toUpperCase() !== 'DONE'}
               className={`px-6 py-3 rounded-xl font-semibold flex items-center gap-2 transition-all ${
-                currentState === 'DONE' ? 'bg-green-500 hover:bg-green-600 text-white shadow-lg' :
+                currentState.toUpperCase() === 'DONE' ? 'bg-green-500 hover:bg-green-600 text-white shadow-lg' :
                 'bg-gray-200 text-gray-400 cursor-not-allowed'
               }`}>
               {doneLoading ? <><RefreshCw className="w-5 h-5 animate-spin" />Clearing...</> : 
@@ -558,9 +551,9 @@ const BatteryChargerDashboard = () => {
               <div className="text-sm text-blue-800">
                 <p className="font-medium mb-1">Logging Rules:</p>
                 <ul className="list-disc list-inside space-y-1">
-                  <li><strong>idle</strong> → No logging</li>
-                  <li><strong>detect</strong> → Waiting for CC</li>
-                  <li><strong>detect → CC</strong> → Logging starts ✅</li>
+                  <li><strong>IDLE</strong> → No logging ⏸️</li>
+                  <li><strong>DETECT</strong> → Waiting 🟡</li>
+                  <li><strong>DETECT → (any change)</strong> → Logging starts ✅</li>
                   <li><strong>CC/CV/TRANS/DONE</strong> → Continue logging</li>
                 </ul>
               </div>
@@ -594,7 +587,7 @@ const BatteryChargerDashboard = () => {
               <div className="text-center">
                 <Activity className="w-16 h-16 mx-auto mb-4 opacity-50" />
                 <p>Waiting for charging cycle...</p>
-                <p className="text-sm mt-2">Logging starts after: <strong>idle → detect → CC</strong></p>
+                <p className="text-sm mt-2">Logging starts when <strong>DETECT</strong> changes to any other state</p>
               </div>
             </div>
           )}
@@ -635,7 +628,7 @@ const BatteryChargerDashboard = () => {
         {/* Footer */}
         <div className="text-center mt-8 text-gray-500 text-sm">
           <p>Battery Charger Monitor - State Machine Controlled Logging</p>
-          <p className="mt-1">Logging: idle → detect → CC → CV → TRANS → DONE</p>
+          <p className="mt-1">Logging: IDLE → DETECT → (state change) → CC/CV/TRANS → DONE</p>
         </div>
       </div>
     </div>
