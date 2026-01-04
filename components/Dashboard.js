@@ -196,6 +196,7 @@ const BatteryChargerDashboard = () => {
       if (currUpper === 'IDLE') {
         loggingActiveRef.current = false;
         setIsLoggingActive(false); // ✅ SINKRON UI
+        setLoggingStartTime(null);
       }
       
       // RULE 2: DETECT → WAIT
@@ -203,18 +204,38 @@ const BatteryChargerDashboard = () => {
         // Tidak melakukan apa-apa
       }
       
-      // RULE 3: DETECT → ANYTHING ELSE → START LOGGING
+      // ===== RULE 3 (FINAL & ROBUST) =====
+      // DETECT → ANYTHING (EXCEPT DETECT) → START LOGGING
       if (
         prevUpper === 'DETECT' &&
         currUpper !== 'DETECT' &&
-        currUpper !== 'IDLE'
+        !loggingActiveRef.current
       ) {
-        loggingActiveRef.current = true;
-        setIsLoggingActive(true); // ✅ SINKRON UI
-        setLoggingStartTime(Date.now());
-        console.log('🟢 LOGGING START:', prevState, '→', incomingState);
-      }
+        console.log('🟢 LOGGING START (DETECT EXIT):', prevState, '→', incomingState);
       
+        loggingActiveRef.current = true;
+        setIsLoggingActive(true);
+        setLoggingStartTime(Date.now());
+      }
+      // ===== FALLBACK SAFETY =====
+      // Jika DETECT terlewat tapi state sudah masuk charging
+      if (
+        !loggingActiveRef.current &&
+        currUpper !== 'IDLE' &&
+        currUpper !== 'DETECT'
+      ) {
+        console.warn(
+          '⚠️ FALLBACK LOGGING START: DETECT skipped →',
+          prevState,
+          '→',
+          incomingState
+        );
+      
+        loggingActiveRef.current = true;
+        setIsLoggingActive(true);
+        setLoggingStartTime(Date.now());
+      }
+
       // ================= UPDATE REFS =================
       prevStateRef.current = incomingState;
       
@@ -395,6 +416,8 @@ const BatteryChargerDashboard = () => {
       setPreviousState('idle');
       setIsLoggingActive(false);
       setLoggingStartTime(null);
+      prevStateRef.current = 'idle';
+      loggingActiveRef.current = false;
       
       console.log('   ✅ State machine reset to idle');
       console.log('═══════════════════════════════════════');
@@ -658,4 +681,5 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
