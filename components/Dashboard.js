@@ -28,6 +28,7 @@ const BatteryChargerDashboard = () => {
   const [showConfig, setShowConfig] = useState(true);
   const [voltageChoice, setVoltageChoice] = useState('3.7');
   const [capacityChoice, setCapacityChoice] = useState('1200');
+  const [customCapacity, setCustomCapacity] = useState('');
   const [configSending, setConfigSending] = useState(false);
   
   // Monitoring states
@@ -109,26 +110,40 @@ const BatteryChargerDashboard = () => {
       return;
     }
 
+    // Validate custom capacity if selected
+    let finalCapacity = parseInt(capacityChoice);
+    
+    if (capacityChoice === 'custom') {
+      if (!customCapacity || customCapacity.trim() === '') {
+        alert('⚠️ Masukkan nilai kapasitas custom!');
+        return;
+      }
+      finalCapacity = parseInt(customCapacity);
+      if (isNaN(finalCapacity) || finalCapacity < 100 || finalCapacity > 5000) {
+        alert('⚠️ Kapasitas harus antara 100-5000 mAh!');
+        return;
+      }
+    }
+
     setConfigSending(true);
     
     try {
       const { rtdb, ref, set } = window.firebaseInstances;
       
       const voltage = parseFloat(voltageChoice);
-      const capacity = parseInt(capacityChoice);
       
       // Calculate derived values
       const vref = voltage - 0.2;
-      let iref = capacity * 0.5 / 1000; // Convert mA to A
+      let iref = finalCapacity * 0.5 / 1000; // Convert mA to A
       
-      // Max limit check
-      if (capacity > 2200) {
+      // Max limit check (following Arduino code logic)
+      if (finalCapacity > 2200) {
         iref = 1.1;
       }
       
       const configData = {
         targetVoltage: voltage,
-        batteryCapacity: capacity,
+        batteryCapacity: finalCapacity,
         vref: vref,
         iref: iref,
         status: 'configured',
@@ -140,7 +155,7 @@ const BatteryChargerDashboard = () => {
       await set(ref(rtdb, 'config'), configData);
       
       console.log('✅ Configuration sent successfully');
-      alert(`✅ Konfigurasi berhasil dikirim!\n\nTarget: ${voltage}V\nKapasitas: ${capacity}mAh\nVref: ${vref.toFixed(2)}V\nIref: ${iref.toFixed(2)}A`);
+      alert(`✅ Konfigurasi berhasil dikirim!\n\nTarget: ${voltage}V\nKapasitas: ${finalCapacity}mAh\nVref: ${vref.toFixed(2)}V\nIref: ${iref.toFixed(2)}A`);
       
       // Wait a moment then switch to monitoring view
       setTimeout(() => {
@@ -488,7 +503,7 @@ const BatteryChargerDashboard = () => {
             <label className="block text-sm font-semibold text-gray-700 mb-3">
               Battery Capacity
             </label>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-3 mb-3">
               <button
                 onClick={() => setCapacityChoice('1200')}
                 className={`p-4 rounded-xl border-2 transition-all ${
@@ -511,7 +526,35 @@ const BatteryChargerDashboard = () => {
                 <div className="text-2xl font-bold mb-1">2200</div>
                 <div className="text-xs">mAh</div>
               </button>
+              <button
+                onClick={() => setCapacityChoice('custom')}
+                className={`p-4 rounded-xl border-2 transition-all ${
+                  capacityChoice === 'custom'
+                    ? 'border-green-500 bg-green-50 text-green-700'
+                    : 'border-gray-200 bg-white text-gray-600 hover:border-green-300'
+                }`}
+              >
+                <div className="text-xl font-bold mb-1">Custom</div>
+                <div className="text-xs">Enter value</div>
+              </button>
             </div>
+            
+            {capacityChoice === 'custom' && (
+              <div className="mt-3">
+                <input
+                  type="number"
+                  value={customCapacity}
+                  onChange={(e) => setCustomCapacity(e.target.value)}
+                  placeholder="Enter capacity (100-5000 mAh)"
+                  min="100"
+                  max="5000"
+                  className="w-full px-4 py-3 border-2 border-green-300 rounded-xl focus:border-green-500 focus:outline-none text-lg font-semibold text-gray-800"
+                />
+                <p className="text-xs text-gray-500 mt-2">
+                  Untuk kapasitas &gt; 2200mAh, Iref tetap 1.1A (max limit)
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Calculated Parameters Display */}
@@ -528,16 +571,23 @@ const BatteryChargerDashboard = () => {
                 <span className="text-gray-600">Iref (0.5C):</span>
                 <span className="font-semibold text-gray-800">
                   {(() => {
-                    const cap = parseInt(capacityChoice);
+                    let cap = capacityChoice === 'custom' ? parseInt(customCapacity || '0') : parseInt(capacityChoice);
+                    if (isNaN(cap)) cap = 0;
                     const iref = cap > 2200 ? 1.1 : (cap * 0.5 / 1000);
                     return iref.toFixed(2);
                   })()}A ({(() => {
-                    const cap = parseInt(capacityChoice);
+                    let cap = capacityChoice === 'custom' ? parseInt(customCapacity || '0') : parseInt(capacityChoice);
+                    if (isNaN(cap)) cap = 0;
                     const iref = cap > 2200 ? 1100 : (cap * 0.5);
                     return iref.toFixed(0);
                   })()}mA)
                 </span>
               </div>
+              {capacityChoice === 'custom' && parseInt(customCapacity || '0') > 2200 && (
+                <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
+                  ⚠️ Kapasitas &gt; 2200mAh, Iref dibatasi ke 1.1A (safety limit)
+                </div>
+              )}
             </div>
           </div>
 
