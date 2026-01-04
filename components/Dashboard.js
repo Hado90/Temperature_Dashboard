@@ -74,7 +74,6 @@ const BatteryChargerDashboard = () => {
       window.firebaseInstances = { rtdb, ref, onValue, push, set, remove };
       console.log('✅ Firebase initialized');
       
-      // Check if configuration exists
       checkConfiguration();
       setupRealtimeListeners();
       loadHistoryData();
@@ -94,9 +93,10 @@ const BatteryChargerDashboard = () => {
       const status = snapshot.val();
       console.log('📋 Config status:', status);
       
-      // If status is 'configured' or 'running', show monitoring
+      // ✅ PERBAIKAN: Tambah pengecekan status 'charging'
+      // If status is 'charging', 'configured', or 'running', show monitoring
       // If status is 'idle' or null, show config screen
-      if (status === 'configured' || status === 'running') {
+      if (status === 'charging' || status === 'configured' || status === 'running') {
         setShowConfig(false);
       } else {
         setShowConfig(true);
@@ -141,12 +141,13 @@ const BatteryChargerDashboard = () => {
         iref = 1.1;
       }
       
+      // ✅ PERBAIKAN: Langsung set status ke 'charging' agar ESP32 mulai
       const configData = {
         targetVoltage: voltage,
         batteryCapacity: finalCapacity,
         vref: vref,
         iref: iref,
-        status: 'configured',
+        status: 'charging',  // ⬅️ UBAH: langsung 'charging' bukan 'configured'
         timestamp: Date.now()
       };
       
@@ -154,8 +155,13 @@ const BatteryChargerDashboard = () => {
       
       await set(ref(rtdb, 'config'), configData);
       
-      console.log('✅ Configuration sent successfully');
-      alert(`✅ Konfigurasi berhasil dikirim!\n\nTarget: ${voltage}V\nKapasitas: ${finalCapacity}mAh\nVref: ${vref.toFixed(2)}V\nIref: ${iref.toFixed(2)}A`);
+      console.log('✅ Configuration sent successfully with status: charging');
+      alert(`✅ Konfigurasi berhasil dikirim!\n\n` +
+            `Target: ${voltage}V\n` +
+            `Kapasitas: ${finalCapacity}mAh\n` +
+            `Vref: ${vref.toFixed(2)}V\n` +
+            `Iref: ${iref.toFixed(2)}A\n\n` +
+            `🚀 ESP32 akan mulai charging...`);
       
       // Wait a moment then switch to monitoring view
       setTimeout(() => {
@@ -224,7 +230,8 @@ const BatteryChargerDashboard = () => {
       if (
         !loggingActiveRef.current &&
         currUpper !== 'IDLE' &&
-        currUpper !== 'DETECT'
+        currUpper !== 'DETECT' &&
+        currUpper !== 'WAIT_CFG'
       ) {
         console.warn('⚠️ FALLBACK LOGGING START:', prevState, '→', incomingState);
         loggingActiveRef.current = true;
@@ -349,10 +356,13 @@ const BatteryChargerDashboard = () => {
   }, []);
 
   const handleDoneButton = async () => {
-    if (currentState.toUpperCase() !== 'DONE') {
+    const currStateUpper = currentState.toUpperCase();
+    
+    if (currStateUpper !== 'DONE') {
       alert('⚠️ Tombol DONE hanya bisa ditekan saat status DONE');
       return;
     }
+    
     if (!confirm('Hapus semua data history, reset ke IDLE, dan kembali ke halaman konfigurasi?')) return;
 
     setDoneLoading(true);
@@ -697,7 +707,7 @@ const BatteryChargerDashboard = () => {
 
           <div className={`rounded-2xl shadow-xl p-6 text-white ${
             currentState.toUpperCase() === 'DONE' ? 'bg-gradient-to-br from-green-500 to-emerald-600' :
-            currentState.toUpperCase() === 'IDLE' ? 'bg-gradient-to-br from-gray-400 to-gray-500' :
+            currentState.toUpperCase() === 'IDLE' || currentState.toUpperCase() === 'WAIT_CFG' ? 'bg-gradient-to-br from-gray-400 to-gray-500' :
             currentState.toUpperCase() === 'DETECT' ? 'bg-gradient-to-br from-yellow-500 to-orange-500' :
             'bg-gradient-to-br from-blue-500 to-cyan-500'
           }`}>
@@ -740,10 +750,10 @@ const BatteryChargerDashboard = () => {
               <div className="text-sm text-blue-800">
                 <p className="font-medium mb-1">Logging Rules:</p>
                 <ul className="list-disc list-inside space-y-1">
-                  <li><strong>IDLE</strong> → No logging ⏸️</li>
+                  <li><strong>WAIT_CFG / IDLE</strong> → No logging ⏸️</li>
                   <li><strong>DETECT</strong> → Waiting 🟡</li>
                   <li><strong>DETECT → (any change)</strong> → Logging starts ✅</li>
-                  <li><strong>CC/CV/TRANS/DONE</strong> → Continue logging</li>
+                  <li><strong>SOFTS/CC/CV/TRANS/DONE</strong> → Continue logging</li>
                 </ul>
               </div>
             </div>
