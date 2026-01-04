@@ -378,8 +378,8 @@ const BatteryChargerDashboard = () => {
       console.log('✅ Charger history cleared');
       
       // Reset config status to idle
-      await set(ref(rtdb, 'config/status'), 'idle');
-      console.log('✅ Config status reset to IDLE');
+      await set(ref(rtdb, 'config/status'), 'done');
+      console.log('✅ Config status reset to DONE');
       
       // Reset state machine
       setCurrentState('idle');
@@ -834,3 +834,4 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
