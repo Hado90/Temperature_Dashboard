@@ -192,11 +192,11 @@ const BatteryChargerDashboard = () => {
       
       // ================= STATE MACHINE =================
       
-      // RULE 1: IDLE → STOP LOGGING
-      if (currUpper === 'IDLE') {
+      // RULE 1: IDLE → STOP LOGGING (SAFE)
+      if (currUpper === 'IDLE' && loggingActiveRef.current) {
+        console.log('🔴 STOP LOGGING: Returned to IDLE');
         loggingActiveRef.current = false;
-        setIsLoggingActive(false); // ✅ SINKRON UI
-        setLoggingStartTime(null);
+        setIsLoggingActive(false);
       }
       
       // RULE 2: DETECT → WAIT
@@ -681,5 +681,6 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
 
