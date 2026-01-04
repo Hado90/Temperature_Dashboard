@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Battery, RefreshCw, Zap, Thermometer, Activity, AlertCircle, TrendingUp, CheckCircle } from 'lucide-react';
+import { Battery, RefreshCw, Zap, Thermometer, Activity, AlertCircle, TrendingUp, CheckCircle, Settings, ArrowRight } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 function parseTimestamp(raw) {
@@ -24,12 +24,17 @@ function formatTime(timestamp) {
 }
 
 const BatteryChargerDashboard = () => {
+  // Configuration state
+  const [showConfig, setShowConfig] = useState(true);
+  const [voltageChoice, setVoltageChoice] = useState('3.7');
+  const [capacityChoice, setCapacityChoice] = useState('1200');
+  const [configSending, setConfigSending] = useState(false);
+  
+  // Monitoring states
   const [latestTemp, setLatestTemp] = useState(null);
   const [latestCharger, setLatestCharger] = useState(null);
   const [tempHistory, setTempHistory] = useState([]);
   const [chargerHistory, setChargerHistory] = useState([]);
-  
-  // State machine untuk logging
   const [currentState, setCurrentState] = useState('idle');
   const [previousState, setPreviousState] = useState('idle');
   const [isLoggingActive, setIsLoggingActive] = useState(false);
@@ -41,62 +46,6 @@ const BatteryChargerDashboard = () => {
   const [stats, setStats] = useState({ total: 0 });
   const firebaseInitialized = useRef(false);
 
-  // State machine logic - logging starts when DETECT changes to anything else
-  useEffect(() => {
-    console.log('═══════════════════════════════════════');
-    console.log('📊 STATE MACHINE UPDATE');
-    console.log('   Previous State:', previousState);
-    console.log('   Current State:', currentState);
-    console.log('   Logging Active:', isLoggingActive);
-    console.log('═══════════════════════════════════════');
-
-    // // Normalize states for comparison (handle case variations)
-    // const prevStateUpper = previousState.toUpperCase();
-    // const currStateUpper = currentState.toUpperCase();
-
-    // // RULE 1: If current state is IDLE - NO LOGGING
-    // if (currStateUpper === 'IDLE') {
-    //   if (isLoggingActive) {
-    //     console.log('🔴 STOP LOGGING - State returned to IDLE');
-    //     setIsLoggingActive(false);
-    //     setLoggingStartTime(null);
-    //   } else {
-    //     console.log('⏸️  No logging - State is IDLE');
-    //   }
-    //   return;
-    // }
-
-    // // RULE 2: If current state is DETECT - NO LOGGING YET (waiting)
-    // if (currStateUpper === 'DETECT') {
-    //   console.log('🟡 DETECT state - Waiting for state change to start logging');
-    //   return;
-    // }
-
-    // // RULE 3: KEY TRIGGER - Previous was DETECT, now changed to something else → START LOGGING
-    // if (prevStateUpper === 'DETECT' && currStateUpper !== 'DETECT' && currStateUpper !== 'IDLE' && !isLoggingActive) {
-    //   console.log('🟢 ═══════════════════════════════════════');
-    //   console.log('   LOGGING SESSION STARTED');
-    //   console.log('   Trigger: DETECT → ' + currentState + ' transition detected');
-    //   console.log('   Time:', new Date().toLocaleTimeString('id-ID'));
-    //   console.log('═══════════════════════════════════════');
-    //   setIsLoggingActive(true);
-    //   setLoggingStartTime(Date.now());
-    //   return;
-    // }
-
-    // // RULE 4: Continue logging for charging states
-    // const chargingStates = ['CC', 'CV', 'TRANS', 'DONE'];
-    // if (chargingStates.includes(currStateUpper)) {
-    //   if (isLoggingActive) {
-    //     console.log('✅ Continue logging - State:', currentState);
-    //   } else {
-    //     console.log('⚠️  In charging state (' + currentState + ') but logging not active');
-    //     console.log('   This might be mid-cycle. Previous state was:', previousState);
-    //   }
-    // }
-
-  }, [currentState, previousState]);
-
   useEffect(() => {
     if (!firebaseInitialized.current) {
       initFirebase();
@@ -106,9 +55,7 @@ const BatteryChargerDashboard = () => {
 
   const initFirebase = async () => {
     try {
-      console.log('🔥 ═══════════════════════════════════════');
-      console.log('   FIREBASE INITIALIZATION');
-      console.log('═══════════════════════════════════════');
+      console.log('🔥 Initializing Firebase...');
       
       const { initializeApp } = await import('firebase/app');
       const { getDatabase, ref, onValue, push, set, remove } = await import('firebase/database');
@@ -124,17 +71,87 @@ const BatteryChargerDashboard = () => {
       const rtdb = getDatabase(app);
 
       window.firebaseInstances = { rtdb, ref, onValue, push, set, remove };
-      console.log('✅ Firebase initialized successfully');
-      console.log('   Database URL:', firebaseConfig.databaseURL);
+      console.log('✅ Firebase initialized');
       
+      // Check if configuration exists
+      checkConfiguration();
       setupRealtimeListeners();
       loadHistoryData();
     } catch (error) {
-      console.error('❌ ═══════════════════════════════════════');
-      console.error('   FIREBASE INIT ERROR');
-      console.error('   Error:', error.message);
-      console.error('═══════════════════════════════════════');
+      console.error('❌ Firebase init error:', error.message);
       setLoading(false);
+    }
+  };
+
+  const checkConfiguration = () => {
+    if (!window.firebaseInstances) return;
+    
+    const { rtdb, ref, onValue } = window.firebaseInstances;
+    
+    // Listen to configuration status
+    onValue(ref(rtdb, 'config/status'), (snapshot) => {
+      const status = snapshot.val();
+      console.log('📋 Config status:', status);
+      
+      // If status is 'configured' or 'running', show monitoring
+      // If status is 'idle' or null, show config screen
+      if (status === 'configured' || status === 'running') {
+        setShowConfig(false);
+      } else {
+        setShowConfig(true);
+      }
+    });
+  };
+
+  const handleSendConfiguration = async () => {
+    if (!window.firebaseInstances) {
+      alert('❌ Firebase not initialized');
+      return;
+    }
+
+    setConfigSending(true);
+    
+    try {
+      const { rtdb, ref, set } = window.firebaseInstances;
+      
+      const voltage = parseFloat(voltageChoice);
+      const capacity = parseInt(capacityChoice);
+      
+      // Calculate derived values
+      const vref = voltage - 0.2;
+      let iref = capacity * 0.5 / 1000; // Convert mA to A
+      
+      // Max limit check
+      if (capacity > 2200) {
+        iref = 1.1;
+      }
+      
+      const configData = {
+        targetVoltage: voltage,
+        batteryCapacity: capacity,
+        vref: vref,
+        iref: iref,
+        status: 'configured',
+        timestamp: Date.now()
+      };
+      
+      console.log('📤 Sending config to RTDB:', configData);
+      
+      await set(ref(rtdb, 'config'), configData);
+      
+      console.log('✅ Configuration sent successfully');
+      alert(`✅ Konfigurasi berhasil dikirim!\n\nTarget: ${voltage}V\nKapasitas: ${capacity}mAh\nVref: ${vref.toFixed(2)}V\nIref: ${iref.toFixed(2)}A`);
+      
+      // Wait a moment then switch to monitoring view
+      setTimeout(() => {
+        setShowConfig(false);
+        setConfigSending(false);
+      }, 1000);
+      
+    } catch (error) {
+      console.error('❌ Error sending config:', error);
+      alert('❌ Gagal mengirim konfigurasi: ' + error.message);
+      setConfigSending(false);
     }
   };
 
@@ -146,35 +163,17 @@ const BatteryChargerDashboard = () => {
     
     const { rtdb, ref, onValue, push, set } = window.firebaseInstances;
 
-    console.log('📡 ═══════════════════════════════════════');
-    console.log('   SETTING UP RTDB LISTENERS');
-    console.log('═══════════════════════════════════════');
+    console.log('📡 Setting up RTDB listeners...');
 
-    // ========================================
-    // LISTENER 1: CHARGER STATE (Master controller)
-    // ========================================
+    // Charger state listener
     const chargerRef = ref(rtdb, 'chargerData/latest');
-    console.log('🔗 Subscribing to: chargerData/latest');
     
     onValue(chargerRef, (snapshot) => {
-      console.log('\n📥 ═══════════════════════════════════════');
-      console.log('   CHARGER DATA RECEIVED');
-      
       const data = snapshot.val();
-      console.log('   Raw data:', JSON.stringify(data, null, 2));
       
-      if (!data) {
-        console.error('❌ No charger data found at chargerData/latest');
-        console.log('═══════════════════════════════════════\n');
-        return;
-      }
+      if (!data) return;
 
-      // Extract state from RTDB - PRESERVE ORIGINAL CASE
       const stateFromRTDB = String(data.state || 'Unknown');
-      console.log('   📍 State from RTDB:', stateFromRTDB, '(original case preserved)');
-      console.log('   🔋 Voltage:', data.voltage, 'V');
-      console.log('   ⚡ Current:', data.current, 'A');
-      console.log('   🕐 Timestamp:', data.timestamp);
 
       const chargerData = {
         voltage: Number(data.voltage) || 0,
@@ -183,96 +182,58 @@ const BatteryChargerDashboard = () => {
         timestamp: parseTimestamp(data.timestamp) || Date.now()
       };
       
-      // Update states for state machine
       const incomingState = String(data.state || 'Unknown');
       const prevState = prevStateRef.current;
       
       const prevUpper = prevState.toUpperCase();
       const currUpper = incomingState.toUpperCase();
       
-      // ================= STATE MACHINE =================
-      
-      // RULE 1: IDLE → STOP LOGGING (SAFE)
+      // State machine logic
       if (currUpper === 'IDLE' && loggingActiveRef.current) {
         console.log('🔴 STOP LOGGING: Returned to IDLE');
         loggingActiveRef.current = false;
         setIsLoggingActive(false);
       }
       
-      // RULE 2: DETECT → WAIT
-      if (currUpper === 'DETECT') {
-        // Tidak melakukan apa-apa
-      }
-      
-      // ===== RULE 3 (FINAL & ROBUST) =====
-      // DETECT → ANYTHING (EXCEPT DETECT) → START LOGGING
       if (
         prevUpper === 'DETECT' &&
         currUpper !== 'DETECT' &&
         !loggingActiveRef.current
       ) {
         console.log('🟢 LOGGING START (DETECT EXIT):', prevState, '→', incomingState);
-      
         loggingActiveRef.current = true;
         setIsLoggingActive(true);
         setLoggingStartTime(Date.now());
       }
-      // ===== FALLBACK SAFETY =====
-      // Jika DETECT terlewat tapi state sudah masuk charging
+      
       if (
         !loggingActiveRef.current &&
         currUpper !== 'IDLE' &&
         currUpper !== 'DETECT'
       ) {
-        console.warn(
-          '⚠️ FALLBACK LOGGING START: DETECT skipped →',
-          prevState,
-          '→',
-          incomingState
-        );
-      
+        console.warn('⚠️ FALLBACK LOGGING START:', prevState, '→', incomingState);
         loggingActiveRef.current = true;
         setIsLoggingActive(true);
         setLoggingStartTime(Date.now());
       }
 
-      // ================= UPDATE REFS =================
       prevStateRef.current = incomingState;
-      
-      // ================= UPDATE UI STATE =================
       setPreviousState(prevState);
       setCurrentState(incomingState);
       setLatestCharger(chargerData);
       
-      // ================= LOGGING DECISION =================
       if (loggingActiveRef.current) {
         logChargerData(chargerData, push, set, ref, rtdb);
       }
-      console.log('═══════════════════════════════════════\n');
-    }, (error) => {
-      console.error('❌ Charger listener error:', error);
-      console.error('   Code:', error.code);
-      console.error('   Message:', error.message);
     });
 
-    // ========================================
-    // LISTENER 2: TEMPERATURE (Slave - follows logging state)
-    // ========================================
+    // Temperature listener
     const tempRef = ref(rtdb, 'sensorData/temperature');
-    console.log('🔗 Subscribing to: sensorData/temperature');
     
     onValue(tempRef, (snapshot) => {
-      console.log('\n🌡️  ═══════════════════════════════════════');
-      console.log('   TEMPERATURE DATA RECEIVED');
-      
       const data = snapshot.val();
-      console.log('   Raw data:', JSON.stringify(data, null, 2));
       
-      if (!data) {
-        console.error('❌ No temperature data found');
-        console.log('═══════════════════════════════════════\n');
-        return;
-      }
+      if (!data) return;
 
       const tempData = {
         celsius: Number(data.celsius) || 0,
@@ -280,22 +241,14 @@ const BatteryChargerDashboard = () => {
         timestamp: parseTimestamp(data.timestamp) || Date.now()
       };
       
-      console.log('   🌡️  Celsius:', tempData.celsius, '°C');
-      console.log('   🌡️  Fahrenheit:', tempData.fahrenheit, '°F');
-      
       setLatestTemp(tempData);
 
-      // Check current logging state
       if (loggingActiveRef.current) {
         logTemperatureData(tempData, push, set, ref, rtdb);
-      }    
-      console.log('═══════════════════════════════════════\n');
-    }, (error) => {
-      console.error('❌ Temperature listener error:', error);
+      }
     });
 
-    console.log('✅ All listeners set up successfully');
-    console.log('═══════════════════════════════════════\n');
+    console.log('✅ All listeners set up');
     setLoading(false);
   };
 
@@ -313,13 +266,9 @@ const BatteryChargerDashboard = () => {
       };
       
       await set(newRef, dataToLog);
-      console.log('      ✅ Charger data logged successfully');
-      console.log('         Key:', newRef.key);
+      console.log('✅ Charger data logged');
     } catch (error) {
-      console.error('      ❌ Error logging charger data:', error.message);
-      if (error.code === 'PERMISSION_DENIED') {
-        console.error('      🚫 PERMISSION DENIED - Check Firebase rules');
-      }
+      console.error('❌ Error logging charger:', error.message);
     }
   };
 
@@ -336,10 +285,9 @@ const BatteryChargerDashboard = () => {
       };
       
       await set(newRef, dataToLog);
-      console.log('      ✅ Temperature data logged successfully');
-      console.log('         Key:', newRef.key);
+      console.log('✅ Temperature logged');
     } catch (error) {
-      console.error('      ❌ Error logging temperature:', error.message);
+      console.error('❌ Error logging temp:', error.message);
     }
   };
 
@@ -347,12 +295,9 @@ const BatteryChargerDashboard = () => {
     if (!window.firebaseInstances) return;
     const { rtdb, ref, onValue } = window.firebaseInstances;
 
-    console.log('📊 Loading history data from RTDB...');
-
     onValue(ref(rtdb, 'sensorData/history'), (snapshot) => {
       const data = snapshot.val();
       if (!data) {
-        console.log('   ℹ️  No temperature history found');
         setTempHistory([]);
         return;
       }
@@ -365,13 +310,11 @@ const BatteryChargerDashboard = () => {
       }));
       history.sort((a, b) => a.timestamp - b.timestamp);
       setTempHistory(history);
-      console.log('   ✅ Temperature history:', history.length, 'records');
     });
 
     onValue(ref(rtdb, 'chargerData/history'), (snapshot) => {
       const data = snapshot.val();
       if (!data) {
-        console.log('   ℹ️  No charger history found');
         setChargerHistory([]);
         setStats({ total: 0 });
         return;
@@ -387,7 +330,6 @@ const BatteryChargerDashboard = () => {
       history.sort((a, b) => a.timestamp - b.timestamp);
       setChargerHistory(history);
       setStats({ total: history.length });
-      console.log('   ✅ Charger history:', history.length, 'records');
     });
   }, []);
 
@@ -396,20 +338,23 @@ const BatteryChargerDashboard = () => {
       alert('⚠️ Tombol DONE hanya bisa ditekan saat status DONE');
       return;
     }
-    if (!confirm('Hapus semua data history dan reset untuk siklus baru?')) return;
+    if (!confirm('Hapus semua data history, reset ke IDLE, dan kembali ke halaman konfigurasi?')) return;
 
     setDoneLoading(true);
-    console.log('🗑️  ═══════════════════════════════════════');
-    console.log('   CLEARING ALL HISTORY DATA');
     
     try {
-      const { rtdb, ref, remove } = window.firebaseInstances;
+      const { rtdb, ref, remove, set } = window.firebaseInstances;
       
+      // Clear histories
       await remove(ref(rtdb, 'sensorData/history'));
-      console.log('   ✅ Temperature history cleared');
+      console.log('✅ Temperature history cleared');
       
       await remove(ref(rtdb, 'chargerData/history'));
-      console.log('   ✅ Charger history cleared');
+      console.log('✅ Charger history cleared');
+      
+      // Reset config status to idle
+      await set(ref(rtdb, 'config/status'), 'idle');
+      console.log('✅ Config status reset to IDLE');
       
       // Reset state machine
       setCurrentState('idle');
@@ -419,14 +364,19 @@ const BatteryChargerDashboard = () => {
       prevStateRef.current = 'idle';
       loggingActiveRef.current = false;
       
-      console.log('   ✅ State machine reset to idle');
-      console.log('═══════════════════════════════════════');
+      console.log('✅ State machine reset');
       
-      alert('✅ Data berhasil dihapus. Siap untuk siklus charging baru.');
+      alert('✅ Data berhasil dihapus. Kembali ke halaman konfigurasi...');
+      
+      // Return to config screen
+      setTimeout(() => {
+        setShowConfig(true);
+        setDoneLoading(false);
+      }, 500);
+      
     } catch (error) {
       console.error('❌ Clear error:', error);
       alert('❌ Gagal: ' + error.message);
-    } finally {
       setDoneLoading(false);
     }
   };
@@ -482,6 +432,150 @@ const BatteryChargerDashboard = () => {
     );
   }
 
+  // ========================================
+  // CONFIGURATION SCREEN
+  // ========================================
+  if (showConfig) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full">
+          <div className="flex items-center justify-center mb-6">
+            <div className="bg-blue-500 p-4 rounded-xl">
+              <Settings className="w-10 h-10 text-white" />
+            </div>
+          </div>
+          
+          <h1 className="text-3xl font-bold text-gray-800 text-center mb-2">
+            Battery Charger
+          </h1>
+          <p className="text-gray-500 text-center mb-8">
+            Konfigurasi Parameter Charging
+          </p>
+
+          {/* Voltage Selection */}
+          <div className="mb-6">
+            <label className="block text-sm font-semibold text-gray-700 mb-3">
+              Target Voltage
+            </label>
+            <div className="grid grid-cols-2 gap-4">
+              <button
+                onClick={() => setVoltageChoice('3.7')}
+                className={`p-4 rounded-xl border-2 transition-all ${
+                  voltageChoice === '3.7'
+                    ? 'border-blue-500 bg-blue-50 text-blue-700'
+                    : 'border-gray-200 bg-white text-gray-600 hover:border-blue-300'
+                }`}
+              >
+                <div className="text-2xl font-bold mb-1">3.7V</div>
+                <div className="text-xs">LiFePO4 / Storage</div>
+              </button>
+              <button
+                onClick={() => setVoltageChoice('4.2')}
+                className={`p-4 rounded-xl border-2 transition-all ${
+                  voltageChoice === '4.2'
+                    ? 'border-blue-500 bg-blue-50 text-blue-700'
+                    : 'border-gray-200 bg-white text-gray-600 hover:border-blue-300'
+                }`}
+              >
+                <div className="text-2xl font-bold mb-1">4.2V</div>
+                <div className="text-xs">Li-ion / Full Charge</div>
+              </button>
+            </div>
+          </div>
+
+          {/* Capacity Selection */}
+          <div className="mb-8">
+            <label className="block text-sm font-semibold text-gray-700 mb-3">
+              Battery Capacity
+            </label>
+            <div className="grid grid-cols-2 gap-4">
+              <button
+                onClick={() => setCapacityChoice('1200')}
+                className={`p-4 rounded-xl border-2 transition-all ${
+                  capacityChoice === '1200'
+                    ? 'border-green-500 bg-green-50 text-green-700'
+                    : 'border-gray-200 bg-white text-gray-600 hover:border-green-300'
+                }`}
+              >
+                <div className="text-2xl font-bold mb-1">1200</div>
+                <div className="text-xs">mAh</div>
+              </button>
+              <button
+                onClick={() => setCapacityChoice('2200')}
+                className={`p-4 rounded-xl border-2 transition-all ${
+                  capacityChoice === '2200'
+                    ? 'border-green-500 bg-green-50 text-green-700'
+                    : 'border-gray-200 bg-white text-gray-600 hover:border-green-300'
+                }`}
+              >
+                <div className="text-2xl font-bold mb-1">2200</div>
+                <div className="text-xs">mAh</div>
+              </button>
+            </div>
+          </div>
+
+          {/* Calculated Parameters Display */}
+          <div className="bg-gray-50 rounded-xl p-4 mb-6">
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">Calculated Parameters:</h3>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-600">Vref:</span>
+                <span className="font-semibold text-gray-800">
+                  {(parseFloat(voltageChoice) - 0.2).toFixed(2)}V
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Iref (0.5C):</span>
+                <span className="font-semibold text-gray-800">
+                  {(() => {
+                    const cap = parseInt(capacityChoice);
+                    const iref = cap > 2200 ? 1.1 : (cap * 0.5 / 1000);
+                    return iref.toFixed(2);
+                  })()}A ({(() => {
+                    const cap = parseInt(capacityChoice);
+                    const iref = cap > 2200 ? 1100 : (cap * 0.5);
+                    return iref.toFixed(0);
+                  })()}mA)
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Submit Button */}
+          <button
+            onClick={handleSendConfiguration}
+            disabled={configSending}
+            className={`w-full py-4 rounded-xl font-bold text-lg flex items-center justify-center gap-3 transition-all ${
+              configSending
+                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                : 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white hover:from-blue-600 hover:to-indigo-600 shadow-lg hover:shadow-xl'
+            }`}
+          >
+            {configSending ? (
+              <>
+                <RefreshCw className="w-6 h-6 animate-spin" />
+                Mengirim...
+              </>
+            ) : (
+              <>
+                <CheckCircle className="w-6 h-6" />
+                Selesai & Mulai Charging
+                <ArrowRight className="w-5 h-5" />
+              </>
+            )}
+          </button>
+
+          <p className="text-xs text-gray-400 text-center mt-4">
+            Konfigurasi akan dikirim ke ESP32 via Firebase RTDB
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ========================================
+  // MONITORING SCREEN (Original Dashboard)
+  // ========================================
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
@@ -606,7 +700,7 @@ const BatteryChargerDashboard = () => {
           </div>
         </div>
 
-        {/* CHART 1: VOLTAGE & CURRENT (NOW ON TOP) */}
+        {/* CHART 1: VOLTAGE & CURRENT */}
         <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
           <div className="flex items-center gap-2 mb-6">
             <Zap className="w-6 h-6 text-green-500" />
@@ -638,7 +732,7 @@ const BatteryChargerDashboard = () => {
           )}
         </div>
 
-        {/* CHART 2: TEMPERATURE (NOW BELOW VOLTAGE/CURRENT) */}
+        {/* CHART 2: TEMPERATURE */}
         <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
           <div className="flex items-center gap-2 mb-6">
             <Thermometer className="w-6 h-6 text-orange-500" />
@@ -664,7 +758,6 @@ const BatteryChargerDashboard = () => {
               <div className="text-center">
                 <Activity className="w-16 h-16 mx-auto mb-4 opacity-50" />
                 <p>Waiting for charging cycle...</p>
-                <p className="text-sm mt-2">Logging starts after: <strong>idle → detect → CC</strong></p>
               </div>
             </div>
           )}
@@ -673,7 +766,7 @@ const BatteryChargerDashboard = () => {
         {/* Footer */}
         <div className="text-center mt-8 text-gray-500 text-sm">
           <p>Battery Charger Monitor - State Machine Controlled Logging</p>
-          <p className="mt-1">Logging: IDLE → DETECT → (state change) → CC/CV/TRANS → DONE</p>
+          <p className="mt-1">Web → Firebase RTDB → ESP32 Configuration System</p>
         </div>
       </div>
     </div>
@@ -681,6 +774,3 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
-
-
-
