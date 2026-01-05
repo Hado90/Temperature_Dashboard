@@ -30,7 +30,7 @@ const BatteryChargerDashboard = () => {
   const [capacityChoice, setCapacityChoice] = useState('1200');
   const [customCapacity, setCustomCapacity] = useState('');
   const [configSending, setConfigSending] = useState(false);
-  
+  const [targetVoltage, setTargetVoltage] = useState(4.2); // Default 4.2V
   // Monitoring states
   const [latestTemp, setLatestTemp] = useState(null);
   const [latestCharger, setLatestCharger] = useState(null);
@@ -103,6 +103,13 @@ const BatteryChargerDashboard = () => {
         setShowConfig(true);
       }
     });
+    onValue(ref(rtdb, 'config/targetVoltage'), (snapshot) => {
+    const voltage = snapshot.val();
+    if (voltage) {
+      setTargetVoltage(parseFloat(voltage));
+      console.log('🔋 Target Voltage loaded:', voltage);
+    }
+  });
   };
 
   const handleSendConfiguration = async () => {
@@ -495,7 +502,41 @@ const BatteryChargerDashboard = () => {
       </div>
     );
   };
+  const ChargerTooltip = ({ active, payload }) => {
+    if (!active || !payload || !payload.length) return null;
+    const point = payload[0]?.payload;
+    if (!point) return null;
+    return (
+      <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3">
+        <p className="text-sm font-semibold text-gray-800 mb-2">{point.time}</p>
+        <p className="text-sm text-green-600">Voltage: {point.voltage?.toFixed(2)}V</p>
+        <p className="text-sm text-purple-600">Current: {point.current?.toFixed(2)}A</p>
+      </div>
+    );
+  };
 
+  // ✅ TAMBAHKAN CODE INI DI SINI ✅
+  // Fungsi menghitung SOC berdasarkan voltage saat ini vs target
+  const calculateSOC = () => {
+    if (!latestCharger?.voltage || !targetVoltage) return 0;
+    
+    const currentVoltage = latestCharger.voltage;
+    const minVoltage = 2.5; // Voltage minimum battery (kosong)
+    const maxVoltage = targetVoltage; // Target voltage sebagai 100%
+    
+    // Hitung persentase
+    const soc = ((currentVoltage - minVoltage) / (maxVoltage - minVoltage)) * 100;
+    
+    // Batasi antara 0-100%
+    return Math.max(0, Math.min(100, soc));
+  };
+
+  const socPercentage = calculateSOC();
+  // ✅ SAMPAI SINI ✅
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
@@ -844,16 +885,46 @@ const BatteryChargerDashboard = () => {
             </div> {/* ✅ Penutup container 2 tombol */}
             
           </div> {/* Penutup flex justify-between */}
-          <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-3">
-            <div className="flex items-start gap-2">
-              <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
-              <div className="text-sm text-blue-800">
-                <p className="font-medium mb-1">Control Buttons:</p>
-                <ul className="list-disc list-inside space-y-1">
-                  <li><strong>Reset Charging</strong> → Manual reset kapan saja, kembali ke konfigurasi 🔄</li>
-                  <li><strong>DONE & Clear</strong> → Hanya aktif saat status DONE, clear data dan kembali ✅</li>
-                </ul>
+          {/* SOC Battery Bar */}
+          <div className="mt-4 bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Battery className="w-5 h-5 text-green-600" />
+                <span className="text-sm font-semibold text-gray-700">State of Charge (SOC)</span>
               </div>
+              <div className="text-right">
+                <span className="text-2xl font-bold text-green-600">
+                  {socPercentage.toFixed(1)}%
+                </span>
+                <p className="text-xs text-gray-500">
+                  Target: {targetVoltage}V = 100%
+                </p>
+              </div>
+            </div>
+            
+            {/* Progress Bar */}
+            <div className="relative w-full h-8 bg-gray-200 rounded-full overflow-hidden shadow-inner">
+              <div 
+                className={`h-full rounded-full transition-all duration-500 flex items-center justify-end px-3 ${
+                  socPercentage >= 80 ? 'bg-gradient-to-r from-green-400 to-green-500' :
+                  socPercentage >= 50 ? 'bg-gradient-to-r from-yellow-400 to-yellow-500' :
+                  socPercentage >= 20 ? 'bg-gradient-to-r from-orange-400 to-orange-500' :
+                  'bg-gradient-to-r from-red-400 to-red-500'
+                }`}
+                style={{ width: `${socPercentage}%` }}
+              >
+                {socPercentage > 10 && (
+                  <span className="text-white text-xs font-bold drop-shadow">
+                    {socPercentage.toFixed(0)}%
+                  </span>
+                )}
+              </div>
+            </div>
+            
+            {/* Voltage Info */}
+            <div className="mt-3 flex justify-between text-xs text-gray-600">
+              <span>Current: {latestCharger?.voltage?.toFixed(2) || '--'}V</span>
+              <span>Target: {targetVoltage}V</span>
             </div>
           </div>
         </div>
@@ -932,6 +1003,7 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
 
 
