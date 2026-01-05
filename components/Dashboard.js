@@ -797,8 +797,8 @@ const BatteryChargerDashboard = () => {
               
               {/* ✅ TOMBOL 1: Reset Charging (BARU DITAMBAHKAN) */}
               <button 
-                onClick={handleResetCharging}     {/* Function baru */}
-                disabled={resetLoading}           {/* State baru */}
+                onClick={handleResetCharging}     
+                disabled={resetLoading}           
                 className={`px-6 py-3 rounded-xl font-semibold flex items-center gap-2 transition-all ${
                   resetLoading 
                     ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
@@ -932,5 +932,6 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
 
