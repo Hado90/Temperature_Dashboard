@@ -44,6 +44,7 @@ const BatteryChargerDashboard = () => {
   const loggingActiveRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [doneLoading, setDoneLoading] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
   const [stats, setStats] = useState({ total: 0 });
   const firebaseInitialized = useRef(false);
 
@@ -405,7 +406,57 @@ const BatteryChargerDashboard = () => {
       setDoneLoading(false);
     }
   };
-
+    const handleResetCharging = async () => {
+    // 1. Tampilkan konfirmasi dialog
+    if (!confirm('⚠️ RESET CHARGING\n\nIni akan:\n• Menghapus semua data history\n• Menghentikan proses charging\n• Reset status ke DONE\n• Kembali ke halaman konfigurasi\n\nLanjutkan?')) {
+      return;
+    }
+  
+    // 2. Set loading state jadi true
+    setResetLoading(true);
+    
+    try {
+      // 3. Ambil Firebase instances
+      const { rtdb, ref, remove, set } = window.firebaseInstances;
+      
+      // 4. Hapus temperature history dari Firebase
+      await remove(ref(rtdb, 'sensorData/history'));
+      console.log('✅ Temperature history cleared');
+      
+      // 5. Hapus charger history dari Firebase
+      await remove(ref(rtdb, 'chargerData/history'));
+      console.log('✅ Charger history cleared');
+      
+      // 6. Reset config status ke "done" (sama seperti tombol DONE)
+      await set(ref(rtdb, 'config/status'), 'done');
+      console.log('✅ Config status reset to DONE');
+      
+      // 7. Reset semua state machine di frontend
+      setCurrentState('idle');
+      setPreviousState('idle');
+      setIsLoggingActive(false);
+      setLoggingStartTime(null);
+      prevStateRef.current = 'idle';
+      loggingActiveRef.current = false;
+      
+      console.log('✅ State machine reset via manual reset');
+      
+      // 8. Tampilkan alert sukses
+      alert('✅ Charging berhasil direset!\n\nKembali ke halaman konfigurasi...');
+      
+      // 9. Kembali ke halaman konfigurasi setelah 500ms
+      setTimeout(() => {
+        setShowConfig(true);
+        setResetLoading(false);
+      }, 500);
+      
+    } catch (error) {
+      // 10. Error handling
+      console.error('❌ Reset error:', error);
+      alert('❌ Gagal reset: ' + error.message);
+      setResetLoading(false);
+    }
+  };
   const tempChartData = tempHistory.map(item => ({
     time: item.formattedTime,
     celsius: item.celsius,
@@ -432,7 +483,6 @@ const BatteryChargerDashboard = () => {
       </div>
     );
   };
-
   const ChargerTooltip = ({ active, payload }) => {
     if (!active || !payload || !payload.length) return null;
     const point = payload[0]?.payload;
@@ -723,37 +773,85 @@ const BatteryChargerDashboard = () => {
         {/* Statistics */}
         <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
           <div className="flex items-center justify-between">
+            
+            {/* BAGIAN KIRI: Info (TIDAK BERUBAH) */}
             <div className="flex items-center gap-3">
-              <div className="bg-green-100 p-3 rounded-xl"><TrendingUp className="w-6 h-6 text-green-600" /></div>
+              <div className="bg-green-100 p-3 rounded-xl">
+                <TrendingUp className="w-6 h-6 text-green-600" />
+              </div>
               <div>
                 <h3 className="text-lg font-semibold text-gray-800">Current Charging Cycle</h3>
                 <p className="text-sm text-gray-500">
                   {stats.total} data points logged
                   {loggingStartTime && isLoggingActive && (
-                    <span className="ml-2 text-blue-600">• Started {new Date(loggingStartTime).toLocaleTimeString('id-ID')}</span>
+                    <span className="ml-2 text-blue-600">
+                      • Started {new Date(loggingStartTime).toLocaleTimeString('id-ID')}
+                    </span>
                   )}
                 </p>
               </div>
             </div>
-            <button onClick={handleDoneButton} disabled={doneLoading || currentState.toUpperCase() !== 'DONE'}
-              className={`px-6 py-3 rounded-xl font-semibold flex items-center gap-2 transition-all ${
-                currentState.toUpperCase() === 'DONE' ? 'bg-green-500 hover:bg-green-600 text-white shadow-lg' :
-                'bg-gray-200 text-gray-400 cursor-not-allowed'
-              }`}>
-              {doneLoading ? <><RefreshCw className="w-5 h-5 animate-spin" />Clearing...</> : 
-                <><CheckCircle className="w-5 h-5" />DONE & Clear</>}
-            </button>
-          </div>
+            
+            {/* ✅ BAGIAN KANAN: CONTAINER 2 TOMBOL (BARU) ✅ */}
+            <div className="flex items-center gap-3">
+              
+              {/* ✅ TOMBOL 1: Reset Charging (BARU DITAMBAHKAN) */}
+              <button 
+                onClick={handleResetCharging}     {/* Function baru */}
+                disabled={resetLoading}           {/* State baru */}
+                className={`px-6 py-3 rounded-xl font-semibold flex items-center gap-2 transition-all ${
+                  resetLoading 
+                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                    : 'bg-orange-500 hover:bg-orange-600 text-white shadow-lg hover:shadow-xl'
+                }`}
+              >
+                {resetLoading ? (
+                  <>
+                    <RefreshCw className="w-5 h-5 animate-spin" />
+                    Resetting...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="w-5 h-5" />
+                    Reset Charging
+                  </>
+                )}
+              </button>
+
+              {/* ✅ TOMBOL 2: DONE & Clear (DIPINDAH KE DALAM CONTAINER) */}
+              <button 
+                onClick={handleDoneButton} 
+                disabled={doneLoading || currentState.toUpperCase() !== 'DONE'}
+                className={`px-6 py-3 rounded-xl font-semibold flex items-center gap-2 transition-all ${
+                  currentState.toUpperCase() === 'DONE' 
+                    ? 'bg-green-500 hover:bg-green-600 text-white shadow-lg' 
+                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                }`}
+              >
+                {doneLoading ? (
+                  <>
+                    <RefreshCw className="w-5 h-5 animate-spin" />
+                    Clearing...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle className="w-5 h-5" />
+                    DONE & Clear
+                  </>
+                )}
+              </button>
+              
+            </div> {/* ✅ Penutup container 2 tombol */}
+            
+          </div> {/* Penutup flex justify-between */}
           <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-3">
             <div className="flex items-start gap-2">
               <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
               <div className="text-sm text-blue-800">
-                <p className="font-medium mb-1">Logging Rules:</p>
+                <p className="font-medium mb-1">Control Buttons:</p>
                 <ul className="list-disc list-inside space-y-1">
-                  <li><strong>WAIT_CFG / IDLE</strong> → No logging ⏸️</li>
-                  <li><strong>DETECT</strong> → Waiting 🟡</li>
-                  <li><strong>DETECT → (any change)</strong> → Logging starts ✅</li>
-                  <li><strong>SOFTS/CC/CV/TRANS/DONE</strong> → Continue logging</li>
+                  <li><strong>Reset Charging</strong> → Manual reset kapan saja, kembali ke konfigurasi 🔄</li>
+                  <li><strong>DONE & Clear</strong> → Hanya aktif saat status DONE, clear data dan kembali ✅</li>
                 </ul>
               </div>
             </div>
@@ -834,4 +932,5 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
