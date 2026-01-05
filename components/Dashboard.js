@@ -31,6 +31,10 @@ const BatteryChargerDashboard = () => {
   const [customCapacity, setCustomCapacity] = useState('');
   const [configSending, setConfigSending] = useState(false);
   const [targetVoltage, setTargetVoltage] = useState(4.2); // Default 4.2V
+  const [manualMode, setManualMode] = useState(false);
+  const [manualVref, setManualVref] = useState('');
+  const [manualIref, setManualIref] = useState('');
+  
   // Monitoring states
   const [latestTemp, setLatestTemp] = useState(null);
   const [latestCharger, setLatestCharger] = useState(null);
@@ -113,76 +117,88 @@ const BatteryChargerDashboard = () => {
   };
 
   const handleSendConfiguration = async () => {
-    if (!window.firebaseInstances) {
-      alert('❌ Firebase not initialized');
+  if (!window.firebaseInstances) {
+    alert('❌ Firebase not initialized');
+    return;
+  }
+
+  // Validate custom capacity if selected
+  let finalCapacity = parseInt(capacityChoice);
+  
+  if (capacityChoice === 'custom') {
+    if (!customCapacity || customCapacity.trim() === '') {
+      alert('⚠️ Masukkan nilai kapasitas custom!');
       return;
     }
-
-    // Validate custom capacity if selected
-    let finalCapacity = parseInt(capacityChoice);
-    
-    if (capacityChoice === 'custom') {
-      if (!customCapacity || customCapacity.trim() === '') {
-        alert('⚠️ Masukkan nilai kapasitas custom!');
-        return;
-      }
-      finalCapacity = parseInt(customCapacity);
-      if (isNaN(finalCapacity) || finalCapacity < 100 || finalCapacity > 5000) {
-        alert('⚠️ Kapasitas harus antara 100-5000 mAh!');
-        return;
-      }
+    finalCapacity = parseInt(customCapacity);
+    if (isNaN(finalCapacity) || finalCapacity < 100 || finalCapacity > 5000) {
+      alert('⚠️ Kapasitas harus antara 100-5000 mAh!');
+      return;
     }
+  }
 
-    setConfigSending(true);
+  // ✅ VALIDASI MANUAL MODE
+  let vref, iref;
+  
+  if (manualMode) {
+    // Mode Manual: validasi input user
+    if (!validateManualInputs()) {
+      return;
+    }
+    vref = parseFloat(manualVref);
+    iref = parseFloat(manualIref);
+  } else {
+    // Mode Auto: hitung otomatis
+    const voltage = parseFloat(voltageChoice);
+    vref = voltage - 0.2;
+    iref = finalCapacity * 0.5 / 1000; // 0.5C
     
-    try {
-      const { rtdb, ref, set } = window.firebaseInstances;
-      
-      const voltage = parseFloat(voltageChoice);
-      
-      // Calculate derived values
-      const vref = voltage - 0.2;
-      let iref = finalCapacity * 0.5 / 1000; // Convert mA to A
-      
-      // Max limit check (following Arduino code logic)
-      if (finalCapacity > 2200) {
-        iref = 1.1;
-      }
-      
-      // ✅ PERBAIKAN: Langsung set status ke 'charging' agar ESP32 mulai
-      const configData = {
-        targetVoltage: voltage,
-        batteryCapacity: finalCapacity,
-        vref: vref,
-        iref: iref,
-        status: 'charging',  // ⬅️ UBAH: langsung 'charging' bukan 'configured'
-        timestamp: Date.now()
-      };
-      
-      console.log('📤 Sending config to RTDB:', configData);
-      
-      await set(ref(rtdb, 'config'), configData);
-      
-      console.log('✅ Configuration sent successfully with status: charging');
-      alert(`✅ Konfigurasi berhasil dikirim!\n\n` +
-            `Target: ${voltage}V\n` +
-            `Kapasitas: ${finalCapacity}mAh\n` +
-            `Vref: ${vref.toFixed(2)}V\n` +
-            `Iref: ${iref.toFixed(2)}A\n\n` +
-            `🚀 ESP32 akan mulai charging...`);
-      
-      // Wait a moment then switch to monitoring view
-      setTimeout(() => {
-        setShowConfig(false);
-        setConfigSending(false);
-      }, 1000);
-      
-    } catch (error) {
-      console.error('❌ Error sending config:', error);
-      alert('❌ Gagal mengirim konfigurasi: ' + error.message);
+    // Max limit check
+    if (finalCapacity > 2200) {
+      iref = 1.1;
+    }
+  }
+
+  setConfigSending(true);
+  
+  try {
+    const { rtdb, ref, set } = window.firebaseInstances;
+    
+    const voltage = parseFloat(voltageChoice);
+    
+    const configData = {
+      targetVoltage: voltage,
+      batteryCapacity: finalCapacity,
+      vref: vref,
+      iref: iref,
+      status: 'charging',
+      timestamp: Date.now()
+    };
+    
+    console.log('📤 Sending config to RTDB:', configData);
+    
+    await set(ref(rtdb, 'config'), configData);
+    
+    console.log('✅ Configuration sent successfully');
+    alert(`✅ Konfigurasi berhasil dikirim!\n\n` +
+          `Target: ${voltage}V\n` +
+          `Kapasitas: ${finalCapacity}mAh\n` +
+          `Vref: ${vref.toFixed(2)}V\n` +
+          `Iref: ${iref.toFixed(2)}A (${(iref * 1000).toFixed(0)}mA)\n` +
+          `Mode: ${manualMode ? 'Manual' : 'Auto'}\n\n` +
+          `🚀 ESP32 akan mulai charging...`);
+    
+    setTimeout(() => {
+      setShowConfig(false);
       setConfigSending(false);
-    }
-  };
+    }, 1000);
+    
+  } catch (error) {
+    console.error('❌ Error sending config:', error);
+    alert('❌ Gagal mengirim konfigurasi: ' + error.message);
+    setConfigSending(false);
+  }
+};
 
   const setupRealtimeListeners = () => {
     if (!window.firebaseInstances) {
@@ -363,6 +379,50 @@ const BatteryChargerDashboard = () => {
     });
   }, []);
 
+  // ✅ FUNGSI VALIDASI MANUAL MODE
+  const getMaxVref = () => {
+    const targetV = parseFloat(voltageChoice);
+    return targetV - 0.1; // 3.7V -> max 3.6V, 4.2V -> max 4.1V
+  };
+  
+  const getMaxIref = () => {
+    let cap = capacityChoice === 'custom' ? parseInt(customCapacity || '0') : parseInt(capacityChoice);
+    if (isNaN(cap)) cap = 0;
+    
+    const iref08C = (cap * 0.8) / 1000; // 0.8C dalam Ampere
+    const maxAbsolute = 1.5; // 1.5A max absolute
+    
+    return Math.min(iref08C, maxAbsolute);
+  };
+  
+  const validateManualInputs = () => {
+    const vref = parseFloat(manualVref);
+    const iref = parseFloat(manualIref);
+    const maxVref = getMaxVref();
+    const maxIref = getMaxIref();
+    
+    // Validasi Vref
+    if (isNaN(vref) || vref <= 0) {
+      alert('⚠️ Vref harus berupa angka positif!');
+      return false;
+    }
+    if (vref > maxVref) {
+      alert(`⚠️ Vref maksimal ${maxVref.toFixed(2)}V untuk target ${voltageChoice}V!`);
+      return false;
+    }
+    
+    // Validasi Iref
+    if (isNaN(iref) || iref < 0.1) {
+      alert('⚠️ Iref harus minimal 0.1A (100mA)!');
+      return false;
+    }
+    if (iref > maxIref) {
+      alert(`⚠️ Iref maksimal ${maxIref.toFixed(2)}A (${(maxIref * 1000).toFixed(0)}mA)!`);
+      return false;
+    }
+    
+    return true;
+  };
   const handleDoneButton = async () => {
     const currStateUpper = currentState.toUpperCase();
     
@@ -644,36 +704,103 @@ const BatteryChargerDashboard = () => {
 
           {/* Calculated Parameters Display */}
           <div className="bg-gray-50 rounded-xl p-4 mb-6">
-            <h3 className="text-sm font-semibold text-gray-700 mb-3">Calculated Parameters:</h3>
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-600">Vref:</span>
-                <span className="font-semibold text-gray-800">
-                  {(parseFloat(voltageChoice) - 0.2).toFixed(2)}V
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Iref (0.5C):</span>
-                <span className="font-semibold text-gray-800">
-                  {(() => {
-                    let cap = capacityChoice === 'custom' ? parseInt(customCapacity || '0') : parseInt(capacityChoice);
-                    if (isNaN(cap)) cap = 0;
-                    const iref = cap > 2200 ? 1.1 : (cap * 0.5 / 1000);
-                    return iref.toFixed(2);
-                  })()}A ({(() => {
-                    let cap = capacityChoice === 'custom' ? parseInt(customCapacity || '0') : parseInt(capacityChoice);
-                    if (isNaN(cap)) cap = 0;
-                    const iref = cap > 2200 ? 1100 : (cap * 0.5);
-                    return iref.toFixed(0);
-                  })()}mA)
-                </span>
-              </div>
-              {capacityChoice === 'custom' && parseInt(customCapacity || '0') > 2200 && (
-                <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
-                  ⚠️ Kapasitas &gt; 2200mAh, Iref dibatasi ke 1.1A (safety limit)
-                </div>
-              )}
+            {/* Toggle Manual/Auto Mode */}
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-gray-700">Calculated Parameters:</h3>
+              <button
+                onClick={() => {
+                  setManualMode(!manualMode);
+                  setManualVref('');
+                  setManualIref('');
+                }}
+                className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                  manualMode 
+                    ? 'bg-orange-500 text-white' 
+                    : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                }`}
+              >
+                {manualMode ? '🔧 Manual Mode' : '🤖 Auto Mode'}
+              </button>
             </div>
+          
+            {!manualMode ? (
+              // AUTO MODE
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Vref:</span>
+                  <span className="font-semibold text-gray-800">
+                    {(parseFloat(voltageChoice) - 0.2).toFixed(2)}V
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Iref (0.5C):</span>
+                  <span className="font-semibold text-gray-800">
+                    {(() => {
+                      let cap = capacityChoice === 'custom' ? parseInt(customCapacity || '0') : parseInt(capacityChoice);
+                      if (isNaN(cap)) cap = 0;
+                      const iref = cap > 2200 ? 1.1 : (cap * 0.5 / 1000);
+                      return iref.toFixed(2);
+                    })()}A ({(() => {
+                      let cap = capacityChoice === 'custom' ? parseInt(customCapacity || '0') : parseInt(capacityChoice);
+                      if (isNaN(cap)) cap = 0;
+                      const iref = cap > 2200 ? 1100 : (cap * 0.5);
+                      return iref.toFixed(0);
+                    })()}mA)
+                  </span>
+                </div>
+                {capacityChoice === 'custom' && parseInt(customCapacity || '0') > 2200 && (
+                  <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
+                    ⚠️ Kapasitas &gt; 2200mAh, Iref dibatasi ke 1.1A (safety limit)
+                  </div>
+                )}
+              </div>
+            ) : (
+              // ✅ MANUAL MODE
+              <div className="space-y-4">
+                {/* Manual Vref Input */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-2">
+                    Vref (Voltage Reference)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={manualVref}
+                    onChange={(e) => setManualVref(e.target.value)}
+                    placeholder={`Max: ${getMaxVref().toFixed(2)}V`}
+                    className="w-full px-3 py-2 border-2 border-orange-300 rounded-lg focus:border-orange-500 focus:outline-none text-sm font-semibold"
+                  />
+                  <p className="text-xs text-red-500 mt-1">
+                    ⚠️ Maksimal: {getMaxVref().toFixed(2)}V (Target {voltageChoice}V - 0.1V)
+                  </p>
+                </div>
+          
+                {/* Manual Iref Input */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-2">
+                    Iref (Current Reference)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={manualIref}
+                    onChange={(e) => setManualIref(e.target.value)}
+                    placeholder={`Max: ${getMaxIref().toFixed(2)}A`}
+                    className="w-full px-3 py-2 border-2 border-orange-300 rounded-lg focus:border-orange-500 focus:outline-none text-sm font-semibold"
+                  />
+                  <p className="text-xs text-red-500 mt-1">
+                    ⚠️ Min: 0.1A (100mA) | Max: {getMaxIref().toFixed(2)}A ({(getMaxIref() * 1000).toFixed(0)}mA)
+                    {capacityChoice === 'custom' && getMaxIref() >= 1.5 && (
+                      <span className="block mt-1">📌 Dibatasi 1.5A (max absolute)</span>
+                    )}
+                  </p>
+                </div>
+          
+                <div className="bg-orange-50 border border-orange-200 rounded-lg p-2 text-xs text-orange-800">
+                  ℹ️ Manual mode: Anda mengatur Vref dan Iref sendiri sesuai kebutuhan
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Submit Button */}
@@ -987,6 +1114,7 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
 
 
