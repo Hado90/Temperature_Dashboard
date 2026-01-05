@@ -502,18 +502,6 @@ const BatteryChargerDashboard = () => {
       </div>
     );
   };
-  const ChargerTooltip = ({ active, payload }) => {
-    if (!active || !payload || !payload.length) return null;
-    const point = payload[0]?.payload;
-    if (!point) return null;
-    return (
-      <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3">
-        <p className="text-sm font-semibold text-gray-800 mb-2">{point.time}</p>
-        <p className="text-sm text-green-600">Voltage: {point.voltage?.toFixed(2)}V</p>
-        <p className="text-sm text-purple-600">Current: {point.current?.toFixed(2)}A</p>
-      </div>
-    );
-  };
 
   // ✅ TAMBAHKAN CODE INI DI SINI ✅
   // Fungsi menghitung SOC berdasarkan voltage saat ini vs target
@@ -999,6 +987,7 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
 
 
