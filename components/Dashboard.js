@@ -1,9 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Battery, RefreshCw, Zap, Thermometer, Activity, AlertCircle, TrendingUp, CheckCircle, Settings, ArrowRight } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { Battery, RefreshCw, Zap, Thermometer, Activity, AlertCircle, TrendingUp, CheckCircle, Settings, ArrowRight, Download, Camera } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 function parseTimestamp(raw) {
   if (raw == null) return null;
@@ -1102,9 +1101,9 @@ const BatteryChargerDashboard = () => {
                 )}
               </button>
               
-            </div> {/* ✅ Penutup container 2 tombol */}
+            </div> 
             
-          </div> {/* Penutup flex justify-between */}
+          </div> 
           {/* SOC Battery Bar */}
           <div className="mt-4 bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-4">
             <div className="flex items-center justify-between mb-3">
@@ -1210,7 +1209,6 @@ const BatteryChargerDashboard = () => {
                 Temperature History ({tempHistory.length} readings)
               </h3>
             </div>
-            
             {/* Download Buttons */}
             <div className="flex items-center gap-2">
               <button
@@ -1274,6 +1272,7 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
 
 
