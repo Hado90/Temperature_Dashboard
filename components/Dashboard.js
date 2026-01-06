@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Battery, RefreshCw, Zap, Thermometer, Activity, AlertCircle, TrendingUp, CheckCircle, Settings, ArrowRight } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { Battery, RefreshCw, Zap, Thermometer, Activity, AlertCircle, TrendingUp, CheckCircle, Settings, ArrowRight, Download, Camera } from 'lucide-react';
 
 function parseTimestamp(raw) {
   if (raw == null) return null;
@@ -19,8 +20,19 @@ function formatTime(timestamp) {
     timeZone: 'Asia/Jakarta',
     hour: '2-digit',
     minute: '2-digit',
-    second: '2-digit'
+    second: '2-digit',
+    hour12: false // Format 24 jam
   });
+}
+
+// Tambahkan fungsi baru untuk label grafik (lebih ringkas)
+function formatChartTime(timestamp) {
+  if (!timestamp) return '—';
+  const date = new Date(timestamp);
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const seconds = String(date.getSeconds()).padStart(2, '0');
+  return `${hours}:${minutes}:${seconds}`;
 }
 
 const BatteryChargerDashboard = () => {
@@ -581,6 +593,103 @@ const BatteryChargerDashboard = () => {
 
   const socPercentage = calculateSOC();
   // ✅ SAMPAI SINI ✅
+  // ========================================
+  // DOWNLOAD FUNCTIONS
+  // ========================================
+  
+  const downloadChartAsImage = (chartId, filename) => {
+    const chartElement = document.getElementById(chartId);
+    if (!chartElement) {
+      alert('❌ Chart tidak ditemukan');
+      return;
+    }
+
+    // Gunakan html2canvas via CDN
+    import('https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js')
+      .then((html2canvas) => {
+        html2canvas.default(chartElement, {
+          backgroundColor: '#ffffff',
+          scale: 2, // Higher quality
+          logging: false
+        }).then((canvas) => {
+          const link = document.createElement('a');
+          link.download = `${filename}_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.png`;
+          link.href = canvas.toDataURL('image/png');
+          link.click();
+        });
+      })
+      .catch((error) => {
+        console.error('Error loading html2canvas:', error);
+        alert('❌ Gagal download gambar. Coba lagi.');
+      });
+  };
+
+  const downloadChargerCSV = () => {
+    if (chargerHistory.length === 0) {
+      alert('⚠️ Tidak ada data untuk didownload');
+      return;
+    }
+
+    // Header CSV
+    const headers = ['Timestamp', 'Waktu', 'Voltage (V)', 'Current (A)', 'State'];
+    
+    // Data rows
+    const rows = chargerHistory.map(item => [
+      item.timestamp,
+      formatTime(item.timestamp),
+      item.voltage.toFixed(4),
+      item.current.toFixed(4),
+      item.state
+    ]);
+
+    // Combine
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.join(','))
+    ].join('\n');
+
+    // Download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `charger_data_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const downloadTemperatureCSV = () => {
+    if (tempHistory.length === 0) {
+      alert('⚠️ Tidak ada data untuk didownload');
+      return;
+    }
+
+    const headers = ['Timestamp', 'Waktu', 'Celsius (°C)', 'Fahrenheit (°F)'];
+    
+    const rows = tempHistory.map(item => [
+      item.timestamp,
+      formatTime(item.timestamp),
+      item.celsius.toFixed(4),
+      item.fahrenheit.toFixed(4)
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `temperature_data_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
@@ -1048,11 +1157,31 @@ const BatteryChargerDashboard = () => {
               Voltage & Current History ({chargerHistory.length} readings)
             </h3>
           </div>
+           {/* Download Buttons */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => downloadChartAsImage('charger-chart', 'voltage_current_chart')}
+              className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center gap-2 transition-all text-sm font-semibold"
+              title="Download Chart as Image"
+            >
+              <Camera className="w-4 h-4" />
+              PNG
+            </button>
+            <button
+              onClick={downloadChargerCSV}
+              className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center gap-2 transition-all text-sm font-semibold"
+              title="Download Data as CSV"
+            >
+              <Download className="w-4 h-4" />
+              CSV
+            </button>
+          </div>
+        </div>
           {chargerChartData.length > 0 ? (
             <ResponsiveContainer width="100%" height={400}>
               <LineChart data={chargerChartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
-                <XAxis dataKey="time" stroke="#666" style={{ fontSize: '12px' }} angle={-45} textAnchor="end" height={80} interval={Math.floor(chargerChartData.length / 15)} />
+                <XAxis dataKey="time" stroke="#666" style={{ fontSize: '12px' }} angle={-45} textAnchor="end" height={80} interval={Math.floor(chargerChartData.length / 20)} />
                 <YAxis yAxisId="left" stroke="#10b981" style={{ fontSize: '12px' }} label={{ value: 'Voltage (V)', angle: -90, position: 'insideLeft' }} />
                 <YAxis yAxisId="right" orientation="right" stroke="#8b5cf6" style={{ fontSize: '12px' }} label={{ value: 'Current (A)', angle: 90, position: 'insideRight' }} />
                 <Tooltip content={<ChargerTooltip />} />
@@ -1080,11 +1209,31 @@ const BatteryChargerDashboard = () => {
               Temperature History ({tempHistory.length} readings)
             </h3>
           </div>
+          {/* Download Buttons */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => downloadChartAsImage('temperature-chart', 'temperature_chart')}
+              className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center gap-2 transition-all text-sm font-semibold"
+              title="Download Chart as Image"
+            >
+              <Camera className="w-4 h-4" />
+              PNG
+            </button>
+            <button
+              onClick={downloadTemperatureCSV}
+              className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center gap-2 transition-all text-sm font-semibold"
+              title="Download Data as CSV"
+            >
+              <Download className="w-4 h-4" />
+              CSV
+            </button>
+          </div>
+        </div>
           {tempChartData.length > 0 ? (
             <ResponsiveContainer width="100%" height={400}>
               <LineChart data={tempChartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
-                <XAxis dataKey="time" stroke="#666" style={{ fontSize: '12px' }} angle={-45} textAnchor="end" height={80} interval={Math.floor(tempChartData.length / 15)} />
+                <XAxis dataKey="time" stroke="#666" style={{ fontSize: '12px' }} angle={-45} textAnchor="end" height={80} interval={Math.floor(tempChartData.length / 20)} />
                 <YAxis yAxisId="left" stroke="#f97316" style={{ fontSize: '12px' }} label={{ value: 'Celsius (°C)', angle: -90, position: 'insideLeft' }} />
                 <YAxis yAxisId="right" orientation="right" stroke="#3b82f6" style={{ fontSize: '12px' }} label={{ value: 'Fahrenheit (°F)', angle: 90, position: 'insideRight' }} />
                 <Tooltip content={<TempTooltip />} />
@@ -1114,6 +1263,7 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
 
 
