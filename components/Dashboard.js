@@ -1150,7 +1150,7 @@ const BatteryChargerDashboard = () => {
         </div>
 
         {/* CHART 1: VOLTAGE & CURRENT */}
-        <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
+        <div className="bg-white rounded-2xl shadow-xl p-6 mb-6" id="charger-chart">
           <div className="flex items-center gap-2 mb-6">
             <Zap className="w-6 h-6 text-green-500" />
             <h3 className="text-xl font-bold text-gray-800">
@@ -1202,38 +1202,49 @@ const BatteryChargerDashboard = () => {
         </div>
 
         {/* CHART 2: TEMPERATURE */}
-        <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
-          <div className="flex items-center gap-2 mb-6">
-            <Thermometer className="w-6 h-6 text-orange-500" />
-            <h3 className="text-xl font-bold text-gray-800">
-              Temperature History ({tempHistory.length} readings)
-            </h3>
+        <div className="bg-white rounded-2xl shadow-xl p-6 mb-6" id="temperature-chart">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-2">
+              <Thermometer className="w-6 h-6 text-orange-500" />
+              <h3 className="text-xl font-bold text-gray-800">
+                Temperature History ({tempHistory.length} readings)
+              </h3>
+            </div>
+            
+            {/* Download Buttons */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => downloadChartAsImage('temperature-chart', 'temperature_chart')}
+                className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center gap-2 transition-all text-sm font-semibold"
+                title="Download Chart as Image"
+              >
+                <Camera className="w-4 h-4" />
+                PNG
+              </button>
+              <button
+                onClick={downloadTemperatureCSV}
+                className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center gap-2 transition-all text-sm font-semibold"
+                title="Download Data as CSV"
+              >
+                <Download className="w-4 h-4" />
+                CSV
+              </button>
+            </div>
           </div>
-          {/* Download Buttons */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => downloadChartAsImage('temperature-chart', 'temperature_chart')}
-              className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center gap-2 transition-all text-sm font-semibold"
-              title="Download Chart as Image"
-            >
-              <Camera className="w-4 h-4" />
-              PNG
-            </button>
-            <button
-              onClick={downloadTemperatureCSV}
-              className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center gap-2 transition-all text-sm font-semibold"
-              title="Download Data as CSV"
-            >
-              <Download className="w-4 h-4" />
-              CSV
-            </button>
-          </div>
-        </div>
+          
           {tempChartData.length > 0 ? (
             <ResponsiveContainer width="100%" height={400}>
               <LineChart data={tempChartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
-                <XAxis dataKey="time" stroke="#666" style={{ fontSize: '12px' }} angle={-45} textAnchor="end" height={80} interval={Math.floor(tempChartData.length / 20)} />
+                <XAxis 
+                  dataKey="time" 
+                  stroke="#666" 
+                  style={{ fontSize: '12px' }} 
+                  angle={-45} 
+                  textAnchor="end" 
+                  height={80} 
+                  interval={Math.floor(tempChartData.length / 20)} 
+                />
                 <YAxis yAxisId="left" stroke="#f97316" style={{ fontSize: '12px' }} label={{ value: 'Celsius (°C)', angle: -90, position: 'insideLeft' }} />
                 <YAxis yAxisId="right" orientation="right" stroke="#3b82f6" style={{ fontSize: '12px' }} label={{ value: 'Fahrenheit (°F)', angle: 90, position: 'insideRight' }} />
                 <Tooltip content={<TempTooltip />} />
@@ -1263,6 +1274,7 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
 
 
