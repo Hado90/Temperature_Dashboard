@@ -596,31 +596,150 @@ const BatteryChargerDashboard = () => {
   // DOWNLOAD FUNCTIONS
   // ========================================
   
-  const downloadChartAsImage = (chartId, filename) => {
+  const openChartInNewTab = (chartId, filename) => {
     const chartElement = document.getElementById(chartId);
     if (!chartElement) {
       alert('❌ Chart tidak ditemukan');
       return;
     }
 
-    // Gunakan html2canvas via CDN
-    import('https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js')
-      .then((html2canvas) => {
-        html2canvas.default(chartElement, {
-          backgroundColor: '#ffffff',
-          scale: 2, // Higher quality
-          logging: false
-        }).then((canvas) => {
-          const link = document.createElement('a');
-          link.download = `${filename}_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.png`;
-          link.href = canvas.toDataURL('image/png');
-          link.click();
-        });
-      })
-      .catch((error) => {
-        console.error('Error loading html2canvas:', error);
-        alert('❌ Gagal download gambar. Coba lagi.');
-      });
+    try {
+      // Cari SVG element dari Recharts
+      const svgElement = chartElement.querySelector('svg');
+      if (!svgElement) {
+        alert('❌ Chart belum ter-render. Coba lagi.');
+        return;
+      }
+
+      // Clone SVG untuk preservasi styling
+      const clonedSvg = svgElement.cloneNode(true);
+      
+      // Set explicit dimensions
+      const width = svgElement.width.baseVal.value || 800;
+      const height = svgElement.height.baseVal.value || 400;
+      
+      clonedSvg.setAttribute('width', width);
+      clonedSvg.setAttribute('height', height);
+      clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    
+      // Add white background
+      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      rect.setAttribute('width', '100%');
+      rect.setAttribute('height', '100%');
+      rect.setAttribute('fill', '#ffffff');
+      clonedSvg.insertBefore(rect, clonedSvg.firstChild);
+  
+      // Convert SVG to string
+      const svgData = new XMLSerializer().serializeToString(clonedSvg);
+      const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+      const svgUrl = URL.createObjectURL(svgBlob);
+  
+      // Create canvas
+      const canvas = document.createElement('canvas');
+      canvas.width = width * 2; // 2x for better quality
+      canvas.height = height * 2;
+      const ctx = canvas.getContext('2d');
+      
+      // Scale for high DPI
+      ctx.scale(2, 2);
+
+      // Load SVG into image
+      const img = new Image();
+      img.onload = () => {
+        ctx.drawImage(img, 0, 0, width, height);
+        URL.revokeObjectURL(svgUrl);
+        
+        // Convert canvas to PNG data URL
+        const pngUrl = canvas.toDataURL('image/png');
+        
+        // Open in new tab
+        const newWindow = window.open();
+        if (newWindow) {
+          newWindow.document.write(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <title>${filename}</title>
+              <style>
+                body {
+                  margin: 0;
+                  display: flex;
+                  justify-content: center;
+                  align-items: center;
+                  min-height: 100vh;
+                  background: #f3f4f6;
+                  font-family: system-ui, -apple-system, sans-serif;
+                }
+                .container {
+                  text-align: center;
+                  padding: 2rem;
+                }
+                img {
+                  max-width: 100%;
+                  height: auto;
+                  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                  border-radius: 8px;
+                  background: white;
+                }
+                .instructions {
+                  margin-top: 1rem;
+                  color: #6b7280;
+                  font-size: 0.875rem;
+                }
+                .download-btn {
+                  margin-top: 1rem;
+                  padding: 0.5rem 1rem;
+                  background: #3b82f6;
+                  color: white;
+                  border: none;
+                  border-radius: 0.5rem;
+                  cursor: pointer;
+                  font-size: 0.875rem;
+                  font-weight: 600;
+                }
+                .download-btn:hover {
+                  background: #2563eb;
+                }
+              </style>
+            </head>
+            <body>
+              <div class="container">
+                <img src="${pngUrl}" alt="${filename}" />
+                <p class="instructions">
+                  💡 <strong>Klik kanan pada gambar</strong> → <strong>Save Image As...</strong> untuk download
+                </p>
+                <button class="download-btn" onclick="downloadImage()">
+                  📥 Download Langsung
+                </button>
+              </div>
+              <script>
+                function downloadImage() {
+                  const link = document.createElement('a');
+                  link.download = '${filename}_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.png';
+                  link.href = '${pngUrl}';
+                  link.click();
+                }
+              </script>
+            </body>
+            </html>
+          `);
+          newWindow.document.close();
+        } else {
+          alert('⚠️ Pop-up diblokir. Izinkan pop-up untuk membuka gambar di tab baru.');
+        }
+      };
+    
+      img.onerror = () => {
+        URL.revokeObjectURL(svgUrl);
+        alert('❌ Gagal memuat chart. Coba lagi.');
+      };
+      
+      img.src = svgUrl;
+      
+    } catch (error) {
+      console.error('Error opening chart:', error);
+      alert('❌ Gagal membuka chart. Coba lagi.');
+    }
   };
 
   const downloadChargerCSV = () => {
@@ -1161,12 +1280,12 @@ const BatteryChargerDashboard = () => {
             {/* Download Buttons */}
             <div className="flex items-center gap-2">
               <button
-                onClick={() => downloadChartAsImage('charger-chart', 'voltage_current_chart')}
+                onClick={() => openChartInNewTab('charger-chart', 'voltage_current_chart')}
                 className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center gap-2 transition-all text-sm font-semibold"
-                title="Download Chart as Image"
+                title="Open chart in new tab for download"
               >
                 <Camera className="w-4 h-4" />
-                PNG
+                Open Image
               </button>
               <button
                 onClick={downloadChargerCSV}
@@ -1222,14 +1341,14 @@ const BatteryChargerDashboard = () => {
             </div>
             {/* Download Buttons */}
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => downloadChartAsImage('temperature-chart', 'temperature_chart')}
-                className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center gap-2 transition-all text-sm font-semibold"
-                title="Download Chart as Image"
-              >
-                <Camera className="w-4 h-4" />
-                PNG
-              </button>
+            <button
+              onClick={() => openChartInNewTab('temperature-chart', 'temperature_chart')}
+              className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center gap-2 transition-all text-sm font-semibold"
+              title="Open chart in new tab for download"
+            >
+              <Camera className="w-4 h-4" />
+              Open Image
+            </button>
               <button
                 onClick={downloadTemperatureCSV}
                 className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center gap-2 transition-all text-sm font-semibold"
@@ -1283,6 +1402,7 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
 
 
