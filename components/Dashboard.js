@@ -1150,37 +1150,48 @@ const BatteryChargerDashboard = () => {
 
         {/* CHART 1: VOLTAGE & CURRENT */}
         <div className="bg-white rounded-2xl shadow-xl p-6 mb-6" id="charger-chart">
-          <div className="flex items-center gap-2 mb-6">
-            <Zap className="w-6 h-6 text-green-500" />
-            <h3 className="text-xl font-bold text-gray-800">
-              Voltage & Current History ({chargerHistory.length} readings)
-            </h3>
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-2">
+              <Zap className="w-6 h-6 text-green-500" />
+              <h3 className="text-xl font-bold text-gray-800">
+                Voltage & Current History ({chargerHistory.length} readings)
+              </h3>
+            </div>
+            
+            {/* Download Buttons */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => downloadChartAsImage('charger-chart', 'voltage_current_chart')}
+                className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center gap-2 transition-all text-sm font-semibold"
+                title="Download Chart as Image"
+              >
+                <Camera className="w-4 h-4" />
+                PNG
+              </button>
+              <button
+                onClick={downloadChargerCSV}
+                className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center gap-2 transition-all text-sm font-semibold"
+                title="Download Data as CSV"
+              >
+                <Download className="w-4 h-4" />
+                CSV
+              </button>
+            </div>
           </div>
-           {/* Download Buttons */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => downloadChartAsImage('charger-chart', 'voltage_current_chart')}
-              className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center gap-2 transition-all text-sm font-semibold"
-              title="Download Chart as Image"
-            >
-              <Camera className="w-4 h-4" />
-              PNG
-            </button>
-            <button
-              onClick={downloadChargerCSV}
-              className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center gap-2 transition-all text-sm font-semibold"
-              title="Download Data as CSV"
-            >
-              <Download className="w-4 h-4" />
-              CSV
-            </button>
-          </div>
-        </div>
+          
           {chargerChartData.length > 0 ? (
             <ResponsiveContainer width="100%" height={400}>
               <LineChart data={chargerChartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
-                <XAxis dataKey="time" stroke="#666" style={{ fontSize: '12px' }} angle={-45} textAnchor="end" height={80} interval={Math.floor(chargerChartData.length / 20)} />
+                <XAxis 
+                  dataKey="time" 
+                  stroke="#666" 
+                  style={{ fontSize: '12px' }} 
+                  angle={-45} 
+                  textAnchor="end" 
+                  height={80} 
+                  interval={Math.floor(chargerChartData.length / 20)} 
+                />
                 <YAxis yAxisId="left" stroke="#10b981" style={{ fontSize: '12px' }} label={{ value: 'Voltage (V)', angle: -90, position: 'insideLeft' }} />
                 <YAxis yAxisId="right" orientation="right" stroke="#8b5cf6" style={{ fontSize: '12px' }} label={{ value: 'Current (A)', angle: 90, position: 'insideRight' }} />
                 <Tooltip content={<ChargerTooltip />} />
@@ -1272,6 +1283,7 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
 
 
