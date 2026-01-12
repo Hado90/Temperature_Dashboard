@@ -45,15 +45,8 @@ const BatteryChargerDashboard = () => {
   const [manualVref, setManualVref] = useState('');
   const [manualIref, setManualIref] = useState('');
   // Tambahkan state ini setelah state yang sudah ada
-  const [refreshMetrics, setRefreshMetrics] = useState({
-    lastFirebaseTimestamp: null,
-    lastWebReceiveTime: null,
-    delay: null,
-    avgDelay: null,
-    maxDelay: null,
-    minDelay: null,
-    delayHistory: []
-  });
+  const [refreshLogs, setRefreshLogs] = useState([]);
+  const MAX_LOGS = 10; // Simpan 10 log terakhir saja
   // Monitoring states
   const [latestTemp, setLatestTemp] = useState(null);
   const [latestCharger, setLatestCharger] = useState(null);
@@ -238,38 +231,34 @@ const BatteryChargerDashboard = () => {
       
       if (!data) return;
     
-      // ✅ TAMBAHAN BARU: Tracking refresh rate
-      const webReceiveTime = Date.now(); // Waktu web menerima data
-      const firebaseTimestamp = parseTimestamp(data.timestamp); // Waktu ESP32 kirim data
+      // ✅ TRACKING REFRESH RATE (SEDERHANA)
+      const webReceiveTime = Date.now();
+      const firebaseTimestamp = parseTimestamp(data.timestamp);
       
       if (firebaseTimestamp) {
-        const currentDelay = webReceiveTime - firebaseTimestamp; // Hitung delay dalam ms
+        const delay = webReceiveTime - firebaseTimestamp;
         
-        setRefreshMetrics(prev => {
-          const newHistory = [...prev.delayHistory, currentDelay].slice(-50); // Simpan 50 data terakhir
-          const avgDelay = newHistory.reduce((a, b) => a + b, 0) / newHistory.length;
-          const maxDelay = Math.max(...newHistory);
-          const minDelay = Math.min(...newHistory);
+        // Tambahkan log baru
+        setRefreshLogs(prev => {
+          const newLog = {
+            id: Date.now(),
+            esp32Time: firebaseTimestamp,
+            webTime: webReceiveTime,
+            delay: delay,
+            timestamp: new Date().toLocaleTimeString('id-ID', { hour12: false })
+          };
           
-          // Log ke console untuk debugging
-          console.log('📊 REFRESH METRICS:', {
-            firebaseTimestamp: new Date(firebaseTimestamp).toISOString(),
-            webReceiveTime: new Date(webReceiveTime).toISOString(),
-            delay: `${currentDelay}ms`,
-            avgDelay: `${avgDelay.toFixed(0)}ms`,
-            maxDelay: `${maxDelay}ms`,
-            minDelay: `${minDelay}ms`
+          // Simpan hanya 10 log terakhir
+          const updated = [newLog, ...prev].slice(0, MAX_LOGS);
+          
+          // Console log untuk debugging
+          console.log('📊 Refresh Delay:', {
+            delay: `${delay}ms`,
+            esp32: new Date(firebaseTimestamp).toLocaleTimeString(),
+            web: new Date(webReceiveTime).toLocaleTimeString()
           });
           
-          return {
-            lastFirebaseTimestamp: firebaseTimestamp,
-            lastWebReceiveTime: webReceiveTime,
-            delay: currentDelay,
-            avgDelay,
-            maxDelay,
-            minDelay,
-            delayHistory: newHistory
-          };
+          return updated;
         });
       }
     
@@ -282,7 +271,7 @@ const BatteryChargerDashboard = () => {
         timestamp: firebaseTimestamp || Date.now()
       };
       
-      // ... sisa code yang sudah ada tetap sama ...
+      // ... sisa code yang sudah ada (state machine logic) ...
       const incomingState = String(data.state || 'Unknown');
       const prevState = prevStateRef.current;
       
@@ -1150,159 +1139,143 @@ const BatteryChargerDashboard = () => {
         </div>
 
         {/* Value Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
-          <div className="bg-gradient-to-br from-orange-500 to-red-500 rounded-2xl shadow-xl p-6 text-white">
-            <div className="flex items-center justify-between mb-4">
-              <div className="bg-white/20 p-3 rounded-xl"><Thermometer className="w-6 h-6" /></div>
-              <span className="text-sm font-medium bg-white/20 px-3 py-1 rounded-full">Temperature</span>
-            </div>
-            <div className="text-5xl font-bold mb-2">{latestTemp?.celsius != null ? latestTemp.celsius.toFixed(1) : '--'}</div>
-            <p className="text-white/90 text-lg font-medium">°Celsius</p>
-          </div>
-
-          <div className="bg-gradient-to-br from-green-500 to-emerald-500 rounded-2xl shadow-xl p-6 text-white">
-            <div className="flex items-center justify-between mb-4">
-              <div className="bg-white/20 p-3 rounded-xl"><Zap className="w-6 h-6" /></div>
-              <span className="text-sm font-medium bg-white/20 px-3 py-1 rounded-full">Voltage</span>
-            </div>
-            <div className="text-5xl font-bold mb-2">{latestCharger?.voltage != null ? latestCharger.voltage.toFixed(2) : '--'}</div>
-            <p className="text-white/90 text-lg font-medium">Volts</p>
-          </div>
-
-          <div className="bg-gradient-to-br from-purple-500 to-indigo-500 rounded-2xl shadow-xl p-6 text-white">
-            <div className="flex items-center justify-between mb-4">
-              <div className="bg-white/20 p-3 rounded-xl"><Activity className="w-6 h-6" /></div>
-              <span className="text-sm font-medium bg-white/20 px-3 py-1 rounded-full">Current</span>
-            </div>
-            <div className="text-5xl font-bold mb-2">{latestCharger?.current != null ? latestCharger.current.toFixed(2) : '--'}</div>
-            <p className="text-white/90 text-lg font-medium">Amperes</p>
-          </div>
-
-          <div className={`rounded-2xl shadow-xl p-6 text-white ${
-            currentState.toUpperCase() === 'DONE' ? 'bg-gradient-to-br from-green-500 to-emerald-600' :
-            currentState.toUpperCase() === 'IDLE' || currentState.toUpperCase() === 'WAIT_CFG' ? 'bg-gradient-to-br from-gray-400 to-gray-500' :
-            currentState.toUpperCase() === 'DETECT' ? 'bg-gradient-to-br from-yellow-500 to-orange-500' :
-            'bg-gradient-to-br from-blue-500 to-cyan-500'
-          }`}>
-            <div className="flex items-center justify-between mb-4">
-              <div className="bg-white/20 p-3 rounded-xl"><Battery className="w-6 h-6" /></div>
-              <span className="text-sm font-medium bg-white/20 px-3 py-1 rounded-full">Status</span>
-            </div>
-            <div className="text-4xl font-bold mb-2">{currentState || 'Unknown'}</div>
-            <p className="text-white/90 text-sm font-medium">Charger State</p>
-          </div>
-        </div>
-        {/* ✅ TAMBAHAN BARU: Refresh Rate Monitor */}
-        {refreshMetrics.delay !== null && (
+        {/* ✅ REFRESH RATE LOG (HISTORIS SEDERHANA) */}
+        {refreshLogs.length > 0 && (
           <div className="bg-white rounded-2xl shadow-xl p-6 mb-6 border-2 border-blue-200">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="bg-blue-100 p-3 rounded-xl">
-                <Activity className="w-6 h-6 text-blue-600" />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold text-gray-800">
-                  🔍 Refresh Rate Monitor (Testing Only)
-                </h3>
-                <p className="text-sm text-gray-500">
-                  Delay antara ESP32 → Firebase → Web
-                </p>
-              </div>
-            </div>
-        
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              {/* Current Delay */}
-              <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4 border border-blue-200">
-                <p className="text-xs font-semibold text-blue-600 mb-1">Current Delay</p>
-                <p className="text-3xl font-bold text-blue-700">
-                  {refreshMetrics.delay}
-                  <span className="text-lg ml-1">ms</span>
-                </p>
-              </div>
-        
-              {/* Average Delay */}
-              <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-4 border border-green-200">
-                <p className="text-xs font-semibold text-green-600 mb-1">Average Delay</p>
-                <p className="text-3xl font-bold text-green-700">
-                  {refreshMetrics.avgDelay?.toFixed(0)}
-                  <span className="text-lg ml-1">ms</span>
-                </p>
-              </div>
-        
-              {/* Min Delay */}
-              <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-4 border border-purple-200">
-                <p className="text-xs font-semibold text-purple-600 mb-1">Min Delay</p>
-                <p className="text-3xl font-bold text-purple-700">
-                  {refreshMetrics.minDelay}
-                  <span className="text-lg ml-1">ms</span>
-                </p>
-              </div>
-        
-              {/* Max Delay */}
-              <div className="bg-gradient-to-br from-red-50 to-red-100 rounded-xl p-4 border border-red-200">
-                <p className="text-xs font-semibold text-red-600 mb-1">Max Delay</p>
-                <p className="text-3xl font-bold text-red-700">
-                  {refreshMetrics.maxDelay}
-                  <span className="text-lg ml-1">ms</span>
-                </p>
-              </div>
-            </div>
-        
-            {/* Detail Timestamps */}
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-              <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
-                <p className="text-xs font-semibold text-gray-600 mb-1">
-                  📤 ESP32 Send Time (Firebase Timestamp)
-                </p>
-                <p className="font-mono text-gray-800">
-                  {refreshMetrics.lastFirebaseTimestamp 
-                    ? new Date(refreshMetrics.lastFirebaseTimestamp).toLocaleString('id-ID', {
-                        timeZone: 'Asia/Jakarta',
-                        hour12: false
-                      })
-                    : '—'}
-                </p>
-              </div>
-              
-              <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
-                <p className="text-xs font-semibold text-gray-600 mb-1">
-                  📥 Web Receive Time
-                </p>
-                <p className="font-mono text-gray-800">
-                  {refreshMetrics.lastWebReceiveTime 
-                    ? new Date(refreshMetrics.lastWebReceiveTime).toLocaleString('id-ID', {
-                        timeZone: 'Asia/Jakarta',
-                        hour12: false
-                      })
-                    : '—'}
-                </p>
-              </div>
-            </div>
-        
-            {/* Color Indicator */}
-            <div className="mt-4 flex items-center justify-between text-xs">
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                  <span className="text-gray-600">&lt; 500ms (Excellent)</span>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="bg-blue-100 p-3 rounded-xl">
+                  <Activity className="w-6 h-6 text-blue-600" />
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
-                  <span className="text-gray-600">500-1000ms (Good)</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full bg-red-500"></div>
-                  <span className="text-gray-600">&gt; 1000ms (Slow)</span>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-800">
+                    🔍 Refresh Rate Log (Testing)
+                  </h3>
+                  <p className="text-sm text-gray-500">
+                    Last {refreshLogs.length} updates • ESP32 → Firebase → Web
+                  </p>
                 </div>
               </div>
               
-              <div className={`px-3 py-1 rounded-full font-semibold ${
-                refreshMetrics.delay < 500 ? 'bg-green-100 text-green-700' :
-                refreshMetrics.delay < 1000 ? 'bg-yellow-100 text-yellow-700' :
+              {/* Latest Delay Badge */}
+              <div className={`px-4 py-2 rounded-xl font-bold text-lg ${
+                refreshLogs[0].delay < 500 ? 'bg-green-100 text-green-700' :
+                refreshLogs[0].delay < 1000 ? 'bg-yellow-100 text-yellow-700' :
                 'bg-red-100 text-red-700'
               }`}>
-                {refreshMetrics.delay < 500 ? '🚀 Excellent' :
-                 refreshMetrics.delay < 1000 ? '✅ Good' :
-                 '⚠️ Slow'}
+                {refreshLogs[0].delay}ms
+              </div>
+            </div>
+        
+            {/* Log Table */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b-2 border-gray-200">
+                    <th className="text-left py-3 px-4 font-semibold text-gray-700">No</th>
+                    <th className="text-left py-3 px-4 font-semibold text-gray-700">Time</th>
+                    <th className="text-left py-3 px-4 font-semibold text-gray-700">ESP32 Send</th>
+                    <th className="text-left py-3 px-4 font-semibold text-gray-700">Web Receive</th>
+                    <th className="text-right py-3 px-4 font-semibold text-gray-700">Delay</th>
+                    <th className="text-center py-3 px-4 font-semibold text-gray-700">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {refreshLogs.map((log, index) => (
+                    <tr 
+                      key={log.id} 
+                      className={`border-b border-gray-100 hover:bg-gray-50 transition-colors ${
+                        index === 0 ? 'bg-blue-50' : ''
+                      }`}
+                    >
+                      <td className="py-3 px-4 text-gray-600">
+                        {index + 1}
+                      </td>
+                      <td className="py-3 px-4 font-mono text-gray-800">
+                        {log.timestamp}
+                      </td>
+                      <td className="py-3 px-4 font-mono text-gray-600 text-xs">
+                        {new Date(log.esp32Time).toLocaleTimeString('id-ID', { 
+                          hour12: false,
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          second: '2-digit'
+                        })}.{String(log.esp32Time % 1000).padStart(3, '0')}
+                      </td>
+                      <td className="py-3 px-4 font-mono text-gray-600 text-xs">
+                        {new Date(log.webTime).toLocaleTimeString('id-ID', { 
+                          hour12: false,
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          second: '2-digit'
+                        })}.{String(log.webTime % 1000).padStart(3, '0')}
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <span className={`font-bold ${
+                          log.delay < 500 ? 'text-green-600' :
+                          log.delay < 1000 ? 'text-yellow-600' :
+                          'text-red-600'
+                        }`}>
+                          {log.delay}ms
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold ${
+                          log.delay < 500 ? 'bg-green-100 text-green-700' :
+                          log.delay < 1000 ? 'bg-yellow-100 text-yellow-700' :
+                          'bg-red-100 text-red-700'
+                        }`}>
+                          <div className={`w-2 h-2 rounded-full ${
+                            log.delay < 500 ? 'bg-green-500' :
+                            log.delay < 1000 ? 'bg-yellow-500' :
+                            'bg-red-500'
+                          }`} />
+                          {log.delay < 500 ? 'Fast' :
+                           log.delay < 1000 ? 'Good' :
+                           'Slow'}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+        
+            {/* Statistics Summary */}
+            <div className="mt-4 grid grid-cols-3 gap-4 p-4 bg-gray-50 rounded-xl">
+              <div className="text-center">
+                <p className="text-xs text-gray-500 mb-1">Average</p>
+                <p className="text-lg font-bold text-blue-600">
+                  {Math.round(refreshLogs.reduce((sum, log) => sum + log.delay, 0) / refreshLogs.length)}ms
+                </p>
+              </div>
+              <div className="text-center">
+                <p className="text-xs text-gray-500 mb-1">Fastest</p>
+                <p className="text-lg font-bold text-green-600">
+                  {Math.min(...refreshLogs.map(log => log.delay))}ms
+                </p>
+              </div>
+              <div className="text-center">
+                <p className="text-xs text-gray-500 mb-1">Slowest</p>
+                <p className="text-lg font-bold text-red-600">
+                  {Math.max(...refreshLogs.map(log => log.delay))}ms
+                </p>
+              </div>
+            </div>
+        
+            {/* Legend */}
+            <div className="mt-4 flex items-center justify-center gap-6 text-xs text-gray-600">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-green-500"></div>
+                <span>&lt; 500ms (Fast)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
+                <span>500-1000ms (Good)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                <span>&gt; 1000ms (Slow)</span>
               </div>
             </div>
           </div>
@@ -1560,6 +1533,7 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
 
 
