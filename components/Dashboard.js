@@ -231,27 +231,34 @@ const BatteryChargerDashboard = () => {
       
       if (!data) return;
     
-      // ✅ PERBAIKAN: Gunakan UTC untuk kedua timestamp
+      // ✅ TRACKING REFRESH RATE (MENGGUNAKAN setRefreshLogs)
       const webReceiveTime = Date.now(); // UTC timestamp
       const firebaseTimestamp = parseTimestamp(data.timestamp); // ESP32 timestamp (UTC)
       
       if (firebaseTimestamp) {
-        const currentDelay = webReceiveTime - firebaseTimestamp; // Delay dalam ms
+        const delay = webReceiveTime - firebaseTimestamp; // Delay dalam ms
         
-        setRefreshMetrics(prev => {
-          const newHistory = [...prev.delayHistory, currentDelay].slice(-50);
-          const avgDelay = newHistory.reduce((a, b) => a + b, 0) / newHistory.length;
-          const maxDelay = Math.max(...newHistory);
-          const minDelay = Math.min(...newHistory);
+        // ✅ GUNAKAN setRefreshLogs (BUKAN setRefreshMetrics)
+        setRefreshLogs(prev => {
+          const newLog = {
+            id: Date.now(),
+            esp32Time: firebaseTimestamp,
+            webTime: webReceiveTime,
+            delay: delay,
+            timestamp: new Date().toLocaleTimeString('id-ID', { 
+              timeZone: 'Asia/Jakarta',
+              hour12: false 
+            })
+          };
           
-          // ✅ Log dengan UTC time untuk konsistensi
-          console.log('📊 REFRESH METRICS:', {
-            firebaseTimestamp: new Date(firebaseTimestamp).toISOString(), // UTC
-            webReceiveTime: new Date(webReceiveTime).toISOString(), // UTC
-            delay: `${currentDelay}ms`,
-            avgDelay: `${avgDelay.toFixed(0)}ms`,
-            maxDelay: `${maxDelay}ms`,
-            minDelay: `${minDelay}ms`
+          // Simpan hanya 10 log terakhir
+          const updated = [newLog, ...prev].slice(0, 10);
+          
+          // Console log untuk debugging (dengan UTC)
+          console.log('📊 Refresh Delay:', {
+            delay: `${delay}ms`,
+            esp32UTC: new Date(firebaseTimestamp).toISOString(),
+            webUTC: new Date(webReceiveTime).toISOString()
           });
           
           return updated;
@@ -267,7 +274,7 @@ const BatteryChargerDashboard = () => {
         timestamp: firebaseTimestamp || Date.now()
       };
       
-      // ... sisa code yang sudah ada (state machine logic) ...
+      // ... SISA CODE YANG SUDAH ADA (state machine logic) ...
       const incomingState = String(data.state || 'Unknown');
       const prevState = prevStateRef.current;
       
@@ -1529,6 +1536,7 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
 
 
