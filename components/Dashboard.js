@@ -1170,7 +1170,7 @@ const BatteryChargerDashboard = () => {
                     🔍 Refresh Rate Log (Testing)
                   </h3>
                   <p className="text-sm text-gray-500">
-                    Last {refreshLogs.length} updates • ESP32 → Firebase → Web
+                    Last {refreshLogs.length} updates • Data arrival interval monitoring
                   </p>
                 </div>
               </div>
@@ -1192,9 +1192,8 @@ const BatteryChargerDashboard = () => {
                   <tr className="border-b-2 border-gray-200">
                     <th className="text-left py-3 px-4 font-semibold text-gray-700">No</th>
                     <th className="text-left py-3 px-4 font-semibold text-gray-700">Time</th>
-                    <th className="text-left py-3 px-4 font-semibold text-gray-700">ESP32 Send</th>
                     <th className="text-left py-3 px-4 font-semibold text-gray-700">Web Receive</th>
-                    <th className="text-right py-3 px-4 font-semibold text-gray-700">Delay</th>
+                    <th className="text-right py-3 px-4 font-semibold text-gray-700">Interval</th>
                     <th className="text-center py-3 px-4 font-semibold text-gray-700">Status</th>
                   </tr>
                 </thead>
@@ -1213,15 +1212,8 @@ const BatteryChargerDashboard = () => {
                         {log.timestamp}
                       </td>
                       <td className="py-3 px-4 font-mono text-gray-600 text-xs">
-                        {new Date(log.esp32Time).toLocaleTimeString('id-ID', { 
-                          hour12: false,
-                          hour: '2-digit',
-                          minute: '2-digit',
-                          second: '2-digit'
-                        })}.{String(log.esp32Time % 1000).padStart(3, '0')}
-                      </td>
-                      <td className="py-3 px-4 font-mono text-gray-600 text-xs">
                         {new Date(log.webTime).toLocaleTimeString('id-ID', { 
+                          timeZone: 'Asia/Jakarta',
                           hour12: false,
                           hour: '2-digit',
                           minute: '2-digit',
@@ -1232,6 +1224,7 @@ const BatteryChargerDashboard = () => {
                         <span className={`font-bold ${
                           log.delay < 500 ? 'text-green-600' :
                           log.delay < 1000 ? 'text-yellow-600' :
+                          log.delay < 1200 ? 'text-orange-600' :
                           'text-red-600'
                         }`}>
                           {log.delay}ms
@@ -1241,15 +1234,18 @@ const BatteryChargerDashboard = () => {
                         <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold ${
                           log.delay < 500 ? 'bg-green-100 text-green-700' :
                           log.delay < 1000 ? 'bg-yellow-100 text-yellow-700' :
+                          log.delay < 1200 ? 'bg-orange-100 text-orange-700' :
                           'bg-red-100 text-red-700'
                         }`}>
                           <div className={`w-2 h-2 rounded-full ${
                             log.delay < 500 ? 'bg-green-500' :
                             log.delay < 1000 ? 'bg-yellow-500' :
+                            log.delay < 1200 ? 'bg-orange-500' :
                             'bg-red-500'
                           }`} />
                           {log.delay < 500 ? 'Fast' :
                            log.delay < 1000 ? 'Good' :
+                           log.delay < 1200 ? 'Normal' :
                            'Slow'}
                         </div>
                       </td>
@@ -1551,4 +1547,5 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
