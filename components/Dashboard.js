@@ -52,6 +52,7 @@ const BatteryChargerDashboard = () => {
   const [manualIref, setManualIref] = useState('');
   // Tambahkan state ini setelah state yang sudah ada
   const [refreshLogs, setRefreshLogs] = useState([]);
+  const lastWebReceiveTimeRef = useRef(null); // ✅ TAMBAHKAN INI
   const MAX_LOGS = 10; // Simpan 10 log terakhir saja
   // Monitoring states
   const [latestTemp, setLatestTemp] = useState(null);
@@ -237,20 +238,29 @@ const BatteryChargerDashboard = () => {
       
       if (!data) return;
     
-      // ✅ TRACKING REFRESH RATE (MENGGUNAKAN setRefreshLogs)
-      const webReceiveTime = Date.now(); // UTC timestamp
-      const firebaseTimestamp = parseTimestamp(data.timestamp); // ESP32 timestamp (UTC)
+      // ✅ TRACKING REFRESH RATE (BERDASARKAN INTERVAL KEDATANGAN DATA)
+      const webReceiveTime = Date.now(); // Waktu web menerima data (UTC)
+      const firebaseTimestamp = parseTimestamp(data.timestamp); // Timestamp dari ESP32 (untuk display saja)
       
-      if (firebaseTimestamp) {
-        const delay = webReceiveTime - firebaseTimestamp; // Delay dalam ms
-        
-        // ✅ GUNAKAN setRefreshLogs (BUKAN setRefreshMetrics)
+      // Hitung delay berdasarkan interval kedatangan data di web
+      let delay = 0;
+      
+      if (lastWebReceiveTimeRef.current !== null) {
+        // Delay = selisih waktu kedatangan data saat ini dengan data sebelumnya
+        delay = webReceiveTime - lastWebReceiveTimeRef.current;
+      }
+      
+      // Update last receive time
+      lastWebReceiveTimeRef.current = webReceiveTime;
+      
+      // Log data (skip entry pertama karena belum ada referensi)
+      if (delay > 0) {
         setRefreshLogs(prev => {
           const newLog = {
             id: Date.now(),
-            esp32Time: firebaseTimestamp,
+            esp32Time: firebaseTimestamp, // Untuk display saja
             webTime: webReceiveTime,
-            delay: delay,
+            delay: delay, // Interval antar data
             timestamp: new Date().toLocaleTimeString('id-ID', { 
               timeZone: 'Asia/Jakarta',
               hour12: false 
@@ -260,11 +270,10 @@ const BatteryChargerDashboard = () => {
           // Simpan hanya 10 log terakhir
           const updated = [newLog, ...prev].slice(0, 10);
           
-          // Console log untuk debugging (dengan UTC)
-          console.log('📊 Refresh Delay:', {
-            delay: `${delay}ms`,
-            esp32UTC: new Date(firebaseTimestamp).toISOString(),
-            webUTC: new Date(webReceiveTime).toISOString()
+          // Console log untuk debugging
+          console.log('📊 Data Arrival Interval:', {
+            interval: `${delay}ms`,
+            webReceiveTime: new Date(webReceiveTime).toISOString()
           });
           
           return updated;
@@ -280,7 +289,7 @@ const BatteryChargerDashboard = () => {
         timestamp: firebaseTimestamp || Date.now()
       };
       
-      // ... SISA CODE YANG SUDAH ADA (state machine logic) ...
+      // ... SISA CODE STATE MACHINE (TIDAK BERUBAH) ...
       const incomingState = String(data.state || 'Unknown');
       const prevState = prevStateRef.current;
       
@@ -1542,3 +1551,4 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
