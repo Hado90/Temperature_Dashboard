@@ -1542,20 +1542,3 @@ const BatteryChargerDashboard = () => {
 
 export default BatteryChargerDashboard;
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
