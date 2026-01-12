@@ -33,17 +33,6 @@ function formatChartTime(timestamp) {
   const seconds = String(date.getSeconds()).padStart(2, '0');
   return `${hours}:${minutes}:${seconds}`;
 }
-// Tambahkan state ini setelah state yang sudah ada
-const [refreshMetrics, setRefreshMetrics] = useState({
-  lastFirebaseTimestamp: null,
-  lastWebReceiveTime: null,
-  delay: null,
-  avgDelay: null,
-  maxDelay: null,
-  minDelay: null,
-  delayHistory: []
-});
-
 const BatteryChargerDashboard = () => {
   // Configuration state
   const [showConfig, setShowConfig] = useState(true);
@@ -55,7 +44,16 @@ const BatteryChargerDashboard = () => {
   const [manualMode, setManualMode] = useState(false);
   const [manualVref, setManualVref] = useState('');
   const [manualIref, setManualIref] = useState('');
-  
+  // Tambahkan state ini setelah state yang sudah ada
+  const [refreshMetrics, setRefreshMetrics] = useState({
+    lastFirebaseTimestamp: null,
+    lastWebReceiveTime: null,
+    delay: null,
+    avgDelay: null,
+    maxDelay: null,
+    minDelay: null,
+    delayHistory: []
+  });
   // Monitoring states
   const [latestTemp, setLatestTemp] = useState(null);
   const [latestCharger, setLatestCharger] = useState(null);
@@ -1562,6 +1560,7 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
 
 
