@@ -33,6 +33,16 @@ function formatChartTime(timestamp) {
   const seconds = String(date.getSeconds()).padStart(2, '0');
   return `${hours}:${minutes}:${seconds}`;
 }
+// Tambahkan state ini setelah state yang sudah ada
+const [refreshMetrics, setRefreshMetrics] = useState({
+  lastFirebaseTimestamp: null,
+  lastWebReceiveTime: null,
+  delay: null,
+  avgDelay: null,
+  maxDelay: null,
+  minDelay: null,
+  delayHistory: []
+});
 
 const BatteryChargerDashboard = () => {
   // Configuration state
@@ -222,29 +232,65 @@ const BatteryChargerDashboard = () => {
     console.log('📡 Setting up RTDB listeners...');
 
     // Charger state listener
+    // Charger state listener
     const chargerRef = ref(rtdb, 'chargerData/latest');
     
     onValue(chargerRef, (snapshot) => {
       const data = snapshot.val();
       
       if (!data) return;
-
+    
+      // ✅ TAMBAHAN BARU: Tracking refresh rate
+      const webReceiveTime = Date.now(); // Waktu web menerima data
+      const firebaseTimestamp = parseTimestamp(data.timestamp); // Waktu ESP32 kirim data
+      
+      if (firebaseTimestamp) {
+        const currentDelay = webReceiveTime - firebaseTimestamp; // Hitung delay dalam ms
+        
+        setRefreshMetrics(prev => {
+          const newHistory = [...prev.delayHistory, currentDelay].slice(-50); // Simpan 50 data terakhir
+          const avgDelay = newHistory.reduce((a, b) => a + b, 0) / newHistory.length;
+          const maxDelay = Math.max(...newHistory);
+          const minDelay = Math.min(...newHistory);
+          
+          // Log ke console untuk debugging
+          console.log('📊 REFRESH METRICS:', {
+            firebaseTimestamp: new Date(firebaseTimestamp).toISOString(),
+            webReceiveTime: new Date(webReceiveTime).toISOString(),
+            delay: `${currentDelay}ms`,
+            avgDelay: `${avgDelay.toFixed(0)}ms`,
+            maxDelay: `${maxDelay}ms`,
+            minDelay: `${minDelay}ms`
+          });
+          
+          return {
+            lastFirebaseTimestamp: firebaseTimestamp,
+            lastWebReceiveTime: webReceiveTime,
+            delay: currentDelay,
+            avgDelay,
+            maxDelay,
+            minDelay,
+            delayHistory: newHistory
+          };
+        });
+      }
+    
       const stateFromRTDB = String(data.state || 'Unknown');
-
+    
       const chargerData = {
         voltage: Number(data.voltage) || 0,
         current: Number(data.current) || 0,
         state: stateFromRTDB,
-        timestamp: parseTimestamp(data.timestamp) || Date.now()
+        timestamp: firebaseTimestamp || Date.now()
       };
       
+      // ... sisa code yang sudah ada tetap sama ...
       const incomingState = String(data.state || 'Unknown');
       const prevState = prevStateRef.current;
       
       const prevUpper = prevState.toUpperCase();
       const currUpper = incomingState.toUpperCase();
       
-      // State machine logic
       if (currUpper === 'IDLE' && loggingActiveRef.current) {
         console.log('🔴 STOP LOGGING: Returned to IDLE');
         loggingActiveRef.current = false;
@@ -273,7 +319,7 @@ const BatteryChargerDashboard = () => {
         setIsLoggingActive(true);
         setLoggingStartTime(Date.now());
       }
-
+    
       prevStateRef.current = incomingState;
       setPreviousState(prevState);
       setCurrentState(incomingState);
@@ -1148,7 +1194,121 @@ const BatteryChargerDashboard = () => {
             <p className="text-white/90 text-sm font-medium">Charger State</p>
           </div>
         </div>
-
+        {/* ✅ TAMBAHAN BARU: Refresh Rate Monitor */}
+        {refreshMetrics.delay !== null && (
+          <div className="bg-white rounded-2xl shadow-xl p-6 mb-6 border-2 border-blue-200">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="bg-blue-100 p-3 rounded-xl">
+                <Activity className="w-6 h-6 text-blue-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-800">
+                  🔍 Refresh Rate Monitor (Testing Only)
+                </h3>
+                <p className="text-sm text-gray-500">
+                  Delay antara ESP32 → Firebase → Web
+                </p>
+              </div>
+            </div>
+        
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              {/* Current Delay */}
+              <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4 border border-blue-200">
+                <p className="text-xs font-semibold text-blue-600 mb-1">Current Delay</p>
+                <p className="text-3xl font-bold text-blue-700">
+                  {refreshMetrics.delay}
+                  <span className="text-lg ml-1">ms</span>
+                </p>
+              </div>
+        
+              {/* Average Delay */}
+              <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-4 border border-green-200">
+                <p className="text-xs font-semibold text-green-600 mb-1">Average Delay</p>
+                <p className="text-3xl font-bold text-green-700">
+                  {refreshMetrics.avgDelay?.toFixed(0)}
+                  <span className="text-lg ml-1">ms</span>
+                </p>
+              </div>
+        
+              {/* Min Delay */}
+              <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-4 border border-purple-200">
+                <p className="text-xs font-semibold text-purple-600 mb-1">Min Delay</p>
+                <p className="text-3xl font-bold text-purple-700">
+                  {refreshMetrics.minDelay}
+                  <span className="text-lg ml-1">ms</span>
+                </p>
+              </div>
+        
+              {/* Max Delay */}
+              <div className="bg-gradient-to-br from-red-50 to-red-100 rounded-xl p-4 border border-red-200">
+                <p className="text-xs font-semibold text-red-600 mb-1">Max Delay</p>
+                <p className="text-3xl font-bold text-red-700">
+                  {refreshMetrics.maxDelay}
+                  <span className="text-lg ml-1">ms</span>
+                </p>
+              </div>
+            </div>
+        
+            {/* Detail Timestamps */}
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+              <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                <p className="text-xs font-semibold text-gray-600 mb-1">
+                  📤 ESP32 Send Time (Firebase Timestamp)
+                </p>
+                <p className="font-mono text-gray-800">
+                  {refreshMetrics.lastFirebaseTimestamp 
+                    ? new Date(refreshMetrics.lastFirebaseTimestamp).toLocaleString('id-ID', {
+                        timeZone: 'Asia/Jakarta',
+                        hour12: false
+                      })
+                    : '—'}
+                </p>
+              </div>
+              
+              <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                <p className="text-xs font-semibold text-gray-600 mb-1">
+                  📥 Web Receive Time
+                </p>
+                <p className="font-mono text-gray-800">
+                  {refreshMetrics.lastWebReceiveTime 
+                    ? new Date(refreshMetrics.lastWebReceiveTime).toLocaleString('id-ID', {
+                        timeZone: 'Asia/Jakarta',
+                        hour12: false
+                      })
+                    : '—'}
+                </p>
+              </div>
+            </div>
+        
+            {/* Color Indicator */}
+            <div className="mt-4 flex items-center justify-between text-xs">
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-green-500"></div>
+                  <span className="text-gray-600">&lt; 500ms (Excellent)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
+                  <span className="text-gray-600">500-1000ms (Good)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                  <span className="text-gray-600">&gt; 1000ms (Slow)</span>
+                </div>
+              </div>
+              
+              <div className={`px-3 py-1 rounded-full font-semibold ${
+                refreshMetrics.delay < 500 ? 'bg-green-100 text-green-700' :
+                refreshMetrics.delay < 1000 ? 'bg-yellow-100 text-yellow-700' :
+                'bg-red-100 text-red-700'
+              }`}>
+                {refreshMetrics.delay < 500 ? '🚀 Excellent' :
+                 refreshMetrics.delay < 1000 ? '✅ Good' :
+                 '⚠️ Slow'}
+              </div>
+            </div>
+          </div>
+        )}
         {/* Statistics */}
         <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
           <div className="flex items-center justify-between">
@@ -1402,6 +1562,7 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
 
 
