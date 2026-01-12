@@ -231,31 +231,27 @@ const BatteryChargerDashboard = () => {
       
       if (!data) return;
     
-      // ✅ TRACKING REFRESH RATE (SEDERHANA)
-      const webReceiveTime = Date.now();
-      const firebaseTimestamp = parseTimestamp(data.timestamp);
+      // ✅ PERBAIKAN: Gunakan UTC untuk kedua timestamp
+      const webReceiveTime = Date.now(); // UTC timestamp
+      const firebaseTimestamp = parseTimestamp(data.timestamp); // ESP32 timestamp (UTC)
       
       if (firebaseTimestamp) {
-        const delay = webReceiveTime - firebaseTimestamp;
+        const currentDelay = webReceiveTime - firebaseTimestamp; // Delay dalam ms
         
-        // Tambahkan log baru
-        setRefreshLogs(prev => {
-          const newLog = {
-            id: Date.now(),
-            esp32Time: firebaseTimestamp,
-            webTime: webReceiveTime,
-            delay: delay,
-            timestamp: new Date().toLocaleTimeString('id-ID', { hour12: false })
-          };
+        setRefreshMetrics(prev => {
+          const newHistory = [...prev.delayHistory, currentDelay].slice(-50);
+          const avgDelay = newHistory.reduce((a, b) => a + b, 0) / newHistory.length;
+          const maxDelay = Math.max(...newHistory);
+          const minDelay = Math.min(...newHistory);
           
-          // Simpan hanya 10 log terakhir
-          const updated = [newLog, ...prev].slice(0, MAX_LOGS);
-          
-          // Console log untuk debugging
-          console.log('📊 Refresh Delay:', {
-            delay: `${delay}ms`,
-            esp32: new Date(firebaseTimestamp).toLocaleTimeString(),
-            web: new Date(webReceiveTime).toLocaleTimeString()
+          // ✅ Log dengan UTC time untuk konsistensi
+          console.log('📊 REFRESH METRICS:', {
+            firebaseTimestamp: new Date(firebaseTimestamp).toISOString(), // UTC
+            webReceiveTime: new Date(webReceiveTime).toISOString(), // UTC
+            delay: `${currentDelay}ms`,
+            avgDelay: `${avgDelay.toFixed(0)}ms`,
+            maxDelay: `${maxDelay}ms`,
+            minDelay: `${minDelay}ms`
           });
           
           return updated;
@@ -1533,6 +1529,7 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
 
 
