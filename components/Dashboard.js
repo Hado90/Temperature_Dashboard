@@ -6,9 +6,14 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 
 function parseTimestamp(raw) {
   if (raw == null) return null;
-  if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+  // ✅ PERBAIKAN: Handle both seconds (10 digits) and milliseconds (13 digits)
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    // If 10 digits (seconds), convert to milliseconds
+    return raw < 10000000000 ? raw * 1000 : raw;
   if (typeof raw === 'string' && /^[0-9]+$/.test(raw)) {
-    return raw.length >= 13 ? parseInt(raw, 10) : parseInt(raw, 10) * 1000;
+    const parsed = parseInt(raw, 10);
+    // If 10 digits (seconds), convert to milliseconds
+    return parsed < 10000000000 ? parsed * 1000 : parsed;
   }
   return null;
 }
@@ -1536,6 +1541,7 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
 
 
