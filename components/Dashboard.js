@@ -393,7 +393,9 @@ const BatteryChargerDashboard = () => {
   // ✅ FUNGSI VALIDASI MANUAL MODE
   const getMaxVref = () => {
     const targetV = parseFloat(voltageChoice);
-    return targetV - 0.1; // 3.7V -> max 3.6V, 4.2V -> max 4.1V
+    // Untuk target 4.2V -> max 4.1V
+    // Untuk target 3.7V -> max 3.6V
+    return targetV === 4.2 ? 4.1 : targetV - 0.1;
   };
   
   const getMaxIref = () => {
@@ -1066,7 +1068,7 @@ const BatteryChargerDashboard = () => {
   // MONITORING SCREEN (Original Dashboard)
   // ========================================
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 md:p-8">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 md:p-8 overflow-x-hidden">
       <div className="max-w-7xl mx-auto">
         
         {/* Header */}
@@ -1106,14 +1108,14 @@ const BatteryChargerDashboard = () => {
         </div>
 
         {/* Value Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6 mb-4 md:mb-6">
           <div className="bg-gradient-to-br from-orange-500 to-red-500 rounded-2xl shadow-xl p-6 text-white">
             <div className="flex items-center justify-between mb-4">
               <div className="bg-white/20 p-3 rounded-xl"><Thermometer className="w-6 h-6" /></div>
               <span className="text-sm font-medium bg-white/20 px-3 py-1 rounded-full">Temperature</span>
             </div>
-            <div className="text-5xl font-bold mb-2">{latestTemp?.celsius != null ? latestTemp.celsius.toFixed(1) : '--'}</div>
-            <p className="text-white/90 text-lg font-medium">°Celsius</p>
+            <div className="text-3xl sm:text-4xl md:text-5xl font-bold mb-2">{latestTemp?.celsius != null ? latestTemp.celsius.toFixed(1) : '--'}</div>
+            <p className="text-white/90 text-sm sm:text-base md:text-lg font-medium">°Celsius</p>
           </div>
 
           <div className="bg-gradient-to-br from-green-500 to-emerald-500 rounded-2xl shadow-xl p-6 text-white">
@@ -1402,3 +1404,4 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
