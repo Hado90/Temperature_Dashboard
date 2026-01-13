@@ -6,15 +6,9 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 
 function parseTimestamp(raw) {
   if (raw == null) return null;
-  // ✅ PERBAIKAN: Handle both seconds (10 digits) and milliseconds (13 digits)
-  if (typeof raw === 'number' && Number.isFinite(raw)) {
-    // If 10 digits (seconds), convert to milliseconds
-    return raw < 10000000000 ? raw * 1000 : raw;
-  }
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
   if (typeof raw === 'string' && /^[0-9]+$/.test(raw)) {
-    const parsed = parseInt(raw, 10);
-    // If 10 digits (seconds), convert to milliseconds
-    return parsed < 10000000000 ? parsed * 1000 : parsed;
+    return raw.length >= 13 ? parseInt(raw, 10) : parseInt(raw, 10) * 1000;
   }
   return null;
 }
@@ -39,6 +33,7 @@ function formatChartTime(timestamp) {
   const seconds = String(date.getSeconds()).padStart(2, '0');
   return `${hours}:${minutes}:${seconds}`;
 }
+
 const BatteryChargerDashboard = () => {
   // Configuration state
   const [showConfig, setShowConfig] = useState(true);
@@ -50,10 +45,7 @@ const BatteryChargerDashboard = () => {
   const [manualMode, setManualMode] = useState(false);
   const [manualVref, setManualVref] = useState('');
   const [manualIref, setManualIref] = useState('');
-  // Tambahkan state ini setelah state yang sudah ada
-  const [refreshLogs, setRefreshLogs] = useState([]);
-  const lastWebReceiveTimeRef = useRef(null); // ✅ TAMBAHKAN INI
-  const MAX_LOGS = 10; // Simpan 10 log terakhir saja
+  
   // Monitoring states
   const [latestTemp, setLatestTemp] = useState(null);
   const [latestCharger, setLatestCharger] = useState(null);
@@ -230,72 +222,29 @@ const BatteryChargerDashboard = () => {
     console.log('📡 Setting up RTDB listeners...');
 
     // Charger state listener
-    // Charger state listener
     const chargerRef = ref(rtdb, 'chargerData/latest');
     
     onValue(chargerRef, (snapshot) => {
       const data = snapshot.val();
       
       if (!data) return;
-    
-      // ✅ TRACKING REFRESH RATE (BERDASARKAN INTERVAL KEDATANGAN DATA)
-      const webReceiveTime = Date.now(); // Waktu web menerima data (UTC)
-      const firebaseTimestamp = parseTimestamp(data.timestamp); // Timestamp dari ESP32 (untuk display saja)
-      
-      // Hitung delay berdasarkan interval kedatangan data di web
-      let delay = 0;
-      
-      if (lastWebReceiveTimeRef.current !== null) {
-        // Delay = selisih waktu kedatangan data saat ini dengan data sebelumnya
-        delay = webReceiveTime - lastWebReceiveTimeRef.current;
-      }
-      
-      // Update last receive time
-      lastWebReceiveTimeRef.current = webReceiveTime;
-      
-      // Log data (skip entry pertama karena belum ada referensi)
-      if (delay > 0) {
-        setRefreshLogs(prev => {
-          const newLog = {
-            id: Date.now(),
-            esp32Time: firebaseTimestamp, // Untuk display saja
-            webTime: webReceiveTime,
-            delay: delay, // Interval antar data
-            timestamp: new Date().toLocaleTimeString('id-ID', { 
-              timeZone: 'Asia/Jakarta',
-              hour12: false 
-            })
-          };
-          
-          // Simpan hanya 10 log terakhir
-          const updated = [newLog, ...prev].slice(0, 10);
-          
-          // Console log untuk debugging
-          console.log('📊 Data Arrival Interval:', {
-            interval: `${delay}ms`,
-            webReceiveTime: new Date(webReceiveTime).toISOString()
-          });
-          
-          return updated;
-        });
-      }
-    
+
       const stateFromRTDB = String(data.state || 'Unknown');
-    
+
       const chargerData = {
         voltage: Number(data.voltage) || 0,
         current: Number(data.current) || 0,
         state: stateFromRTDB,
-        timestamp: firebaseTimestamp || Date.now()
+        timestamp: parseTimestamp(data.timestamp) || Date.now()
       };
       
-      // ... SISA CODE STATE MACHINE (TIDAK BERUBAH) ...
       const incomingState = String(data.state || 'Unknown');
       const prevState = prevStateRef.current;
       
       const prevUpper = prevState.toUpperCase();
       const currUpper = incomingState.toUpperCase();
       
+      // State machine logic
       if (currUpper === 'IDLE' && loggingActiveRef.current) {
         console.log('🔴 STOP LOGGING: Returned to IDLE');
         loggingActiveRef.current = false;
@@ -324,7 +273,7 @@ const BatteryChargerDashboard = () => {
         setIsLoggingActive(true);
         setLoggingStartTime(Date.now());
       }
-    
+
       prevStateRef.current = incomingState;
       setPreviousState(prevState);
       setCurrentState(incomingState);
@@ -1157,143 +1106,49 @@ const BatteryChargerDashboard = () => {
         </div>
 
         {/* Value Cards */}
-        {/* ✅ REFRESH RATE LOG (HISTORIS SEDERHANA) */}
-        {refreshLogs.length > 0 && (
-          <div className="bg-white rounded-2xl shadow-xl p-6 mb-6 border-2 border-blue-200">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+          <div className="bg-gradient-to-br from-orange-500 to-red-500 rounded-2xl shadow-xl p-6 text-white">
             <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <div className="bg-blue-100 p-3 rounded-xl">
-                  <Activity className="w-6 h-6 text-blue-600" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-800">
-                    🔍 Refresh Rate Log (Testing)
-                  </h3>
-                  <p className="text-sm text-gray-500">
-                    Last {refreshLogs.length} updates • Data arrival interval monitoring
-                  </p>
-                </div>
-              </div>
-              
-              {/* Latest Delay Badge */}
-              <div className={`px-4 py-2 rounded-xl font-bold text-lg ${
-                refreshLogs[0].delay < 500 ? 'bg-green-100 text-green-700' :
-                refreshLogs[0].delay < 1000 ? 'bg-yellow-100 text-yellow-700' :
-                'bg-red-100 text-red-700'
-              }`}>
-                {refreshLogs[0].delay}ms
-              </div>
+              <div className="bg-white/20 p-3 rounded-xl"><Thermometer className="w-6 h-6" /></div>
+              <span className="text-sm font-medium bg-white/20 px-3 py-1 rounded-full">Temperature</span>
             </div>
-        
-            {/* Log Table */}
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b-2 border-gray-200">
-                    <th className="text-left py-3 px-4 font-semibold text-gray-700">No</th>
-                    <th className="text-left py-3 px-4 font-semibold text-gray-700">Time</th>
-                    <th className="text-left py-3 px-4 font-semibold text-gray-700">Web Receive</th>
-                    <th className="text-right py-3 px-4 font-semibold text-gray-700">Interval</th>
-                    <th className="text-center py-3 px-4 font-semibold text-gray-700">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {refreshLogs.map((log, index) => (
-                    <tr 
-                      key={log.id} 
-                      className={`border-b border-gray-100 hover:bg-gray-50 transition-colors ${
-                        index === 0 ? 'bg-blue-50' : ''
-                      }`}
-                    >
-                      <td className="py-3 px-4 text-gray-600">
-                        {index + 1}
-                      </td>
-                      <td className="py-3 px-4 font-mono text-gray-800">
-                        {log.timestamp}
-                      </td>
-                      <td className="py-3 px-4 font-mono text-gray-600 text-xs">
-                        {new Date(log.webTime).toLocaleTimeString('id-ID', { 
-                          timeZone: 'Asia/Jakarta',
-                          hour12: false,
-                          hour: '2-digit',
-                          minute: '2-digit',
-                          second: '2-digit'
-                        })}.{String(log.webTime % 1000).padStart(3, '0')}
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <span className={`font-bold ${
-                          log.delay < 500 ? 'text-green-600' :
-                          log.delay < 1000 ? 'text-yellow-600' :
-                          log.delay < 1200 ? 'text-orange-600' :
-                          'text-red-600'
-                        }`}>
-                          {log.delay}ms
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold ${
-                          log.delay < 500 ? 'bg-green-100 text-green-700' :
-                          log.delay < 1000 ? 'bg-yellow-100 text-yellow-700' :
-                          log.delay < 1200 ? 'bg-orange-100 text-orange-700' :
-                          'bg-red-100 text-red-700'
-                        }`}>
-                          <div className={`w-2 h-2 rounded-full ${
-                            log.delay < 500 ? 'bg-green-500' :
-                            log.delay < 1000 ? 'bg-yellow-500' :
-                            log.delay < 1200 ? 'bg-orange-500' :
-                            'bg-red-500'
-                          }`} />
-                          {log.delay < 500 ? 'Fast' :
-                           log.delay < 1000 ? 'Good' :
-                           log.delay < 1200 ? 'Normal' :
-                           'Slow'}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-        
-            {/* Statistics Summary */}
-            <div className="mt-4 grid grid-cols-3 gap-4 p-4 bg-gray-50 rounded-xl">
-              <div className="text-center">
-                <p className="text-xs text-gray-500 mb-1">Average</p>
-                <p className="text-lg font-bold text-blue-600">
-                  {Math.round(refreshLogs.reduce((sum, log) => sum + log.delay, 0) / refreshLogs.length)}ms
-                </p>
-              </div>
-              <div className="text-center">
-                <p className="text-xs text-gray-500 mb-1">Fastest</p>
-                <p className="text-lg font-bold text-green-600">
-                  {Math.min(...refreshLogs.map(log => log.delay))}ms
-                </p>
-              </div>
-              <div className="text-center">
-                <p className="text-xs text-gray-500 mb-1">Slowest</p>
-                <p className="text-lg font-bold text-red-600">
-                  {Math.max(...refreshLogs.map(log => log.delay))}ms
-                </p>
-              </div>
-            </div>
-        
-            {/* Legend */}
-            <div className="mt-4 flex items-center justify-center gap-6 text-xs text-gray-600">
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                <span>&lt; 500ms (Fast)</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
-                <span>500-1000ms (Good)</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-red-500"></div>
-                <span>&gt; 1000ms (Slow)</span>
-              </div>
-            </div>
+            <div className="text-5xl font-bold mb-2">{latestTemp?.celsius != null ? latestTemp.celsius.toFixed(1) : '--'}</div>
+            <p className="text-white/90 text-lg font-medium">°Celsius</p>
           </div>
-        )}
+
+          <div className="bg-gradient-to-br from-green-500 to-emerald-500 rounded-2xl shadow-xl p-6 text-white">
+            <div className="flex items-center justify-between mb-4">
+              <div className="bg-white/20 p-3 rounded-xl"><Zap className="w-6 h-6" /></div>
+              <span className="text-sm font-medium bg-white/20 px-3 py-1 rounded-full">Voltage</span>
+            </div>
+            <div className="text-5xl font-bold mb-2">{latestCharger?.voltage != null ? latestCharger.voltage.toFixed(2) : '--'}</div>
+            <p className="text-white/90 text-lg font-medium">Volts</p>
+          </div>
+
+          <div className="bg-gradient-to-br from-purple-500 to-indigo-500 rounded-2xl shadow-xl p-6 text-white">
+            <div className="flex items-center justify-between mb-4">
+              <div className="bg-white/20 p-3 rounded-xl"><Activity className="w-6 h-6" /></div>
+              <span className="text-sm font-medium bg-white/20 px-3 py-1 rounded-full">Current</span>
+            </div>
+            <div className="text-5xl font-bold mb-2">{latestCharger?.current != null ? latestCharger.current.toFixed(2) : '--'}</div>
+            <p className="text-white/90 text-lg font-medium">Amperes</p>
+          </div>
+
+          <div className={`rounded-2xl shadow-xl p-6 text-white ${
+            currentState.toUpperCase() === 'DONE' ? 'bg-gradient-to-br from-green-500 to-emerald-600' :
+            currentState.toUpperCase() === 'IDLE' || currentState.toUpperCase() === 'WAIT_CFG' ? 'bg-gradient-to-br from-gray-400 to-gray-500' :
+            currentState.toUpperCase() === 'DETECT' ? 'bg-gradient-to-br from-yellow-500 to-orange-500' :
+            'bg-gradient-to-br from-blue-500 to-cyan-500'
+          }`}>
+            <div className="flex items-center justify-between mb-4">
+              <div className="bg-white/20 p-3 rounded-xl"><Battery className="w-6 h-6" /></div>
+              <span className="text-sm font-medium bg-white/20 px-3 py-1 rounded-full">Status</span>
+            </div>
+            <div className="text-4xl font-bold mb-2">{currentState || 'Unknown'}</div>
+            <p className="text-white/90 text-sm font-medium">Charger State</p>
+          </div>
+        </div>
+
         {/* Statistics */}
         <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
           <div className="flex items-center justify-between">
@@ -1547,5 +1402,3 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
-
-
