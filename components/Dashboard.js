@@ -20,11 +20,10 @@ function formatTime(timestamp) {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
-    hour12: false // Format 24 jam
+    hour12: false
   });
 }
 
-// Tambahkan fungsi baru untuk label grafik (lebih ringkas)
 function formatChartTime(timestamp) {
   if (!timestamp) return '—';
   const date = new Date(timestamp);
@@ -35,18 +34,16 @@ function formatChartTime(timestamp) {
 }
 
 const BatteryChargerDashboard = () => {
-  // Configuration state
   const [showConfig, setShowConfig] = useState(true);
   const [voltageChoice, setVoltageChoice] = useState('3.7');
   const [capacityChoice, setCapacityChoice] = useState('1200');
   const [customCapacity, setCustomCapacity] = useState('');
   const [configSending, setConfigSending] = useState(false);
-  const [targetVoltage, setTargetVoltage] = useState(4.2); // Default 4.2V
+  const [targetVoltage, setTargetVoltage] = useState(4.2);
   const [manualMode, setManualMode] = useState(false);
   const [manualVref, setManualVref] = useState('');
   const [manualIref, setManualIref] = useState('');
   
-  // Monitoring states
   const [latestTemp, setLatestTemp] = useState(null);
   const [latestCharger, setLatestCharger] = useState(null);
   const [tempHistory, setTempHistory] = useState([]);
@@ -104,14 +101,10 @@ const BatteryChargerDashboard = () => {
     
     const { rtdb, ref, onValue } = window.firebaseInstances;
     
-    // Listen to configuration status
     onValue(ref(rtdb, 'config/status'), (snapshot) => {
       const status = snapshot.val();
       console.log('📋 Config status:', status);
       
-      // ✅ PERBAIKAN: Tambah pengecekan status 'charging'
-      // If status is 'charging', 'configured', or 'running', show monitoring
-      // If status is 'idle' or null, show config screen
       if (status === 'charging' || status === 'configured' || status === 'running') {
         setShowConfig(false);
       } else {
@@ -119,97 +112,92 @@ const BatteryChargerDashboard = () => {
       }
     });
     onValue(ref(rtdb, 'config/targetVoltage'), (snapshot) => {
-    const voltage = snapshot.val();
-    if (voltage) {
-      setTargetVoltage(parseFloat(voltage));
-      console.log('🔋 Target Voltage loaded:', voltage);
-    }
-  });
+      const voltage = snapshot.val();
+      if (voltage) {
+        setTargetVoltage(parseFloat(voltage));
+        console.log('🔋 Target Voltage loaded:', voltage);
+      }
+    });
   };
 
   const handleSendConfiguration = async () => {
-  if (!window.firebaseInstances) {
-    alert('❌ Firebase not initialized');
-    return;
-  }
-
-  // Validate custom capacity if selected
-  let finalCapacity = parseInt(capacityChoice);
-  
-  if (capacityChoice === 'custom') {
-    if (!customCapacity || customCapacity.trim() === '') {
-      alert('⚠️ Masukkan nilai kapasitas custom!');
+    if (!window.firebaseInstances) {
+      alert('❌ Firebase not initialized');
       return;
     }
-    finalCapacity = parseInt(customCapacity);
-    if (isNaN(finalCapacity) || finalCapacity < 100 || finalCapacity > 5000) {
-      alert('⚠️ Kapasitas harus antara 100-5000 mAh!');
-      return;
-    }
-  }
 
-  // ✅ VALIDASI MANUAL MODE
-  let vref, iref;
-  
-  if (manualMode) {
-    // Mode Manual: validasi input user
-    if (!validateManualInputs()) {
-      return;
-    }
-    vref = parseFloat(manualVref);
-    iref = parseFloat(manualIref);
-  } else {
-    // Mode Auto: hitung otomatis
-    const voltage = parseFloat(voltageChoice);
-    vref = voltage - 0.2;
-    iref = finalCapacity * 0.5 / 1000; // 0.5C
+    let finalCapacity = parseInt(capacityChoice);
     
-    // Max limit check
-    if (finalCapacity > 2200) {
-      iref = 1.1;
+    if (capacityChoice === 'custom') {
+      if (!customCapacity || customCapacity.trim() === '') {
+        alert('⚠️ Masukkan nilai kapasitas custom!');
+        return;
+      }
+      finalCapacity = parseInt(customCapacity);
+      if (isNaN(finalCapacity) || finalCapacity < 100 || finalCapacity > 5000) {
+        alert('⚠️ Kapasitas harus antara 100-5000 mAh!');
+        return;
+      }
     }
-  }
 
-  setConfigSending(true);
-  
-  try {
-    const { rtdb, ref, set } = window.firebaseInstances;
+    let vref, iref;
     
-    const voltage = parseFloat(voltageChoice);
+    if (manualMode) {
+      if (!validateManualInputs()) {
+        return;
+      }
+      vref = parseFloat(manualVref);
+      iref = parseFloat(manualIref);
+    } else {
+      const voltage = parseFloat(voltageChoice);
+      vref = voltage - 0.2;
+      iref = finalCapacity * 0.5 / 1000;
+      
+      if (finalCapacity > 2200) {
+        iref = 1.1;
+      }
+    }
+
+    setConfigSending(true);
     
-    const configData = {
-      targetVoltage: voltage,
-      batteryCapacity: finalCapacity,
-      vref: vref,
-      iref: iref,
-      status: 'charging',
-      timestamp: Date.now()
-    };
-    
-    console.log('📤 Sending config to RTDB:', configData);
-    
-    await set(ref(rtdb, 'config'), configData);
-    
-    console.log('✅ Configuration sent successfully');
-    alert(`✅ Konfigurasi berhasil dikirim!\n\n` +
-          `Target: ${voltage}V\n` +
-          `Kapasitas: ${finalCapacity}mAh\n` +
-          `Vref: ${vref.toFixed(2)}V\n` +
-          `Iref: ${iref.toFixed(2)}A (${(iref * 1000).toFixed(0)}mA)\n` +
-          `Mode: ${manualMode ? 'Manual' : 'Auto'}\n\n` +
-          `🚀 ESP32 akan mulai charging...`);
-    
-    setTimeout(() => {
-      setShowConfig(false);
+    try {
+      const { rtdb, ref, set } = window.firebaseInstances;
+      
+      const voltage = parseFloat(voltageChoice);
+      
+      const configData = {
+        targetVoltage: voltage,
+        batteryCapacity: finalCapacity,
+        vref: vref,
+        iref: iref,
+        status: 'charging',
+        timestamp: Date.now()
+      };
+      
+      console.log('📤 Sending config to RTDB:', configData);
+      
+      await set(ref(rtdb, 'config'), configData);
+      
+      console.log('✅ Configuration sent successfully');
+      alert(`✅ Konfigurasi berhasil dikirim!\n\n` +
+            `Target: ${voltage}V\n` +
+            `Kapasitas: ${finalCapacity}mAh\n` +
+            `Vref: ${vref.toFixed(2)}V\n` +
+            `Iref: ${iref.toFixed(2)}A (${(iref * 1000).toFixed(0)}mA)\n` +
+            `Mode: ${manualMode ? 'Manual' : 'Auto'}\n\n` +
+            `🚀 ESP32 akan mulai charging...`);
+      
+      setTimeout(() => {
+        setShowConfig(false);
+        setConfigSending(false);
+      }, 1000);
+      
+    } catch (error) {
+      console.error('❌ Error sending config:', error);
+      alert('❌ Gagal mengirim konfigurasi: ' + error.message);
       setConfigSending(false);
-    }, 1000);
-    
-  } catch (error) {
-    console.error('❌ Error sending config:', error);
-    alert('❌ Gagal mengirim konfigurasi: ' + error.message);
-    setConfigSending(false);
-  }
-};
+    }
+  };
 
   const setupRealtimeListeners = () => {
     if (!window.firebaseInstances) {
@@ -221,7 +209,6 @@ const BatteryChargerDashboard = () => {
 
     console.log('📡 Setting up RTDB listeners...');
 
-    // Charger state listener
     const chargerRef = ref(rtdb, 'chargerData/latest');
     
     onValue(chargerRef, (snapshot) => {
@@ -244,7 +231,6 @@ const BatteryChargerDashboard = () => {
       const prevUpper = prevState.toUpperCase();
       const currUpper = incomingState.toUpperCase();
       
-      // State machine logic
       if (currUpper === 'IDLE' && loggingActiveRef.current) {
         console.log('🔴 STOP LOGGING: Returned to IDLE');
         loggingActiveRef.current = false;
@@ -284,7 +270,6 @@ const BatteryChargerDashboard = () => {
       }
     });
 
-    // Temperature listener
     const tempRef = ref(rtdb, 'sensorData/temperature');
     
     onValue(tempRef, (snapshot) => {
@@ -390,20 +375,17 @@ const BatteryChargerDashboard = () => {
     });
   }, []);
 
-  // ✅ FUNGSI VALIDASI MANUAL MODE
   const getMaxVref = () => {
     const targetV = parseFloat(voltageChoice);
-    // Untuk target 4.2V -> max 4.1V
-    // Untuk target 3.7V -> max 3.6V
-    return targetV === 4.2 ? 4.1 : targetV - 0.1;
+    return targetV - 0.1;
   };
   
   const getMaxIref = () => {
     let cap = capacityChoice === 'custom' ? parseInt(customCapacity || '0') : parseInt(capacityChoice);
     if (isNaN(cap)) cap = 0;
     
-    const iref08C = (cap * 0.8) / 1000; // 0.8C dalam Ampere
-    const maxAbsolute = 1.5; // 1.5A max absolute
+    const iref08C = (cap * 0.8) / 1000;
+    const maxAbsolute = 1.5;
     
     return Math.min(iref08C, maxAbsolute);
   };
@@ -414,7 +396,6 @@ const BatteryChargerDashboard = () => {
     const maxVref = getMaxVref();
     const maxIref = getMaxIref();
     
-    // Validasi Vref
     if (isNaN(vref) || vref <= 0) {
       alert('⚠️ Vref harus berupa angka positif!');
       return false;
@@ -424,7 +405,6 @@ const BatteryChargerDashboard = () => {
       return false;
     }
     
-    // Validasi Iref
     if (isNaN(iref) || iref < 0.1) {
       alert('⚠️ Iref harus minimal 0.1A (100mA)!');
       return false;
@@ -436,6 +416,7 @@ const BatteryChargerDashboard = () => {
     
     return true;
   };
+
   const handleDoneButton = async () => {
     const currStateUpper = currentState.toUpperCase();
     
@@ -451,18 +432,15 @@ const BatteryChargerDashboard = () => {
     try {
       const { rtdb, ref, remove, set } = window.firebaseInstances;
       
-      // Clear histories
       await remove(ref(rtdb, 'sensorData/history'));
       console.log('✅ Temperature history cleared');
       
       await remove(ref(rtdb, 'chargerData/history'));
       console.log('✅ Charger history cleared');
       
-      // Reset config status to idle
       await set(ref(rtdb, 'config/status'), 'done');
       console.log('✅ Config status reset to DONE');
       
-      // Reset state machine
       setCurrentState('idle');
       setPreviousState('idle');
       setIsLoggingActive(false);
@@ -474,7 +452,6 @@ const BatteryChargerDashboard = () => {
       
       alert('✅ Data berhasil dihapus. Kembali ke halaman konfigurasi...');
       
-      // Return to config screen
       setTimeout(() => {
         setShowConfig(true);
         setDoneLoading(false);
@@ -486,32 +463,26 @@ const BatteryChargerDashboard = () => {
       setDoneLoading(false);
     }
   };
-    const handleResetCharging = async () => {
-    // 1. Tampilkan konfirmasi dialog
+
+  const handleResetCharging = async () => {
     if (!confirm('⚠️ RESET CHARGING\n\nIni akan:\n• Menghapus semua data history\n• Menghentikan proses charging\n• Reset status ke DONE\n• Kembali ke halaman konfigurasi\n\nLanjutkan?')) {
       return;
     }
   
-    // 2. Set loading state jadi true
     setResetLoading(true);
     
     try {
-      // 3. Ambil Firebase instances
       const { rtdb, ref, remove, set } = window.firebaseInstances;
       
-      // 4. Hapus temperature history dari Firebase
       await remove(ref(rtdb, 'sensorData/history'));
       console.log('✅ Temperature history cleared');
       
-      // 5. Hapus charger history dari Firebase
       await remove(ref(rtdb, 'chargerData/history'));
       console.log('✅ Charger history cleared');
       
-      // 6. Reset config status ke "done" (sama seperti tombol DONE)
       await set(ref(rtdb, 'config/status'), 'done');
       console.log('✅ Config status reset to DONE');
       
-      // 7. Reset semua state machine di frontend
       setCurrentState('idle');
       setPreviousState('idle');
       setIsLoggingActive(false);
@@ -521,22 +492,20 @@ const BatteryChargerDashboard = () => {
       
       console.log('✅ State machine reset via manual reset');
       
-      // 8. Tampilkan alert sukses
       alert('✅ Charging berhasil direset!\n\nKembali ke halaman konfigurasi...');
       
-      // 9. Kembali ke halaman konfigurasi setelah 500ms
       setTimeout(() => {
         setShowConfig(true);
         setResetLoading(false);
       }, 500);
       
     } catch (error) {
-      // 10. Error handling
       console.error('❌ Reset error:', error);
       alert('❌ Gagal reset: ' + error.message);
       setResetLoading(false);
     }
   };
+
   const tempChartData = tempHistory.map(item => ({
     time: item.formattedTime,
     celsius: item.celsius,
@@ -563,6 +532,7 @@ const BatteryChargerDashboard = () => {
       </div>
     );
   };
+
   const ChargerTooltip = ({ active, payload }) => {
     if (!active || !payload || !payload.length) return null;
     const point = payload[0]?.payload;
@@ -576,28 +546,20 @@ const BatteryChargerDashboard = () => {
     );
   };
 
-  // ✅ TAMBAHKAN CODE INI DI SINI ✅
-  // Fungsi menghitung SOC berdasarkan voltage saat ini vs target
   const calculateSOC = () => {
     if (!latestCharger?.voltage || !targetVoltage) return 0;
     
     const currentVoltage = latestCharger.voltage;
-    const minVoltage = 2.5; // Voltage minimum battery (kosong)
-    const maxVoltage = targetVoltage; // Target voltage sebagai 100%
+    const minVoltage = 2.5;
+    const maxVoltage = targetVoltage;
     
-    // Hitung persentase
     const soc = ((currentVoltage - minVoltage) / (maxVoltage - minVoltage)) * 100;
     
-    // Batasi antara 0-100%
     return Math.max(0, Math.min(100, soc));
   };
 
   const socPercentage = calculateSOC();
-  // ✅ SAMPAI SINI ✅
-  // ========================================
-  // DOWNLOAD FUNCTIONS
-  // ========================================
-  
+
   const openChartInNewTab = (chartId, filename) => {
     const chartElement = document.getElementById(chartId);
     if (!chartElement) {
@@ -606,17 +568,14 @@ const BatteryChargerDashboard = () => {
     }
 
     try {
-      // Cari SVG element dari Recharts
       const svgElement = chartElement.querySelector('svg');
       if (!svgElement) {
         alert('❌ Chart belum ter-render. Coba lagi.');
         return;
       }
 
-      // Clone SVG untuk preservasi styling
       const clonedSvg = svgElement.cloneNode(true);
       
-      // Set explicit dimensions
       const width = svgElement.width.baseVal.value || 800;
       const height = svgElement.height.baseVal.value || 400;
       
@@ -624,37 +583,30 @@ const BatteryChargerDashboard = () => {
       clonedSvg.setAttribute('height', height);
       clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
     
-      // Add white background
       const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
       rect.setAttribute('width', '100%');
       rect.setAttribute('height', '100%');
       rect.setAttribute('fill', '#ffffff');
       clonedSvg.insertBefore(rect, clonedSvg.firstChild);
   
-      // Convert SVG to string
       const svgData = new XMLSerializer().serializeToString(clonedSvg);
       const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
       const svgUrl = URL.createObjectURL(svgBlob);
   
-      // Create canvas
       const canvas = document.createElement('canvas');
-      canvas.width = width * 2; // 2x for better quality
+      canvas.width = width * 2;
       canvas.height = height * 2;
       const ctx = canvas.getContext('2d');
       
-      // Scale for high DPI
       ctx.scale(2, 2);
 
-      // Load SVG into image
       const img = new Image();
       img.onload = () => {
         ctx.drawImage(img, 0, 0, width, height);
         URL.revokeObjectURL(svgUrl);
         
-        // Convert canvas to PNG data URL
         const pngUrl = canvas.toDataURL('image/png');
         
-        // Open in new tab
         const newWindow = window.open();
         if (newWindow) {
           newWindow.document.write(`
@@ -750,10 +702,8 @@ const BatteryChargerDashboard = () => {
       return;
     }
 
-    // Header CSV
     const headers = ['Timestamp', 'Waktu', 'Voltage (V)', 'Current (A)', 'State'];
     
-    // Data rows
     const rows = chargerHistory.map(item => [
       item.timestamp,
       formatTime(item.timestamp),
@@ -762,13 +712,11 @@ const BatteryChargerDashboard = () => {
       item.state
     ]);
 
-    // Combine
     const csvContent = [
       headers.join(','),
       ...rows.map(row => row.join(','))
     ].join('\n');
 
-    // Download
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
@@ -810,6 +758,7 @@ const BatteryChargerDashboard = () => {
     link.click();
     document.body.removeChild(link);
   };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
@@ -821,94 +770,89 @@ const BatteryChargerDashboard = () => {
     );
   }
 
-  // ========================================
-  // CONFIGURATION SCREEN
-  // ========================================
   if (showConfig) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full">
-          <div className="flex items-center justify-center mb-6">
-            <div className="bg-blue-500 p-4 rounded-xl">
-              <Settings className="w-10 h-10 text-white" />
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-3 sm:p-4">
+        <div className="bg-white rounded-xl sm:rounded-2xl shadow-2xl p-4 sm:p-6 md:p-8 max-w-md w-full">
+          <div className="flex items-center justify-center mb-4 sm:mb-6">
+            <div className="bg-blue-500 p-3 sm:p-4 rounded-xl">
+              <Settings className="w-8 h-8 sm:w-10 sm:h-10 text-white" />
             </div>
           </div>
           
-          <h1 className="text-3xl font-bold text-gray-800 text-center mb-2">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 text-center mb-2">
             Battery Charger
           </h1>
-          <p className="text-gray-500 text-center mb-8">
+          <p className="text-sm text-gray-500 text-center mb-6 sm:mb-8">
             Konfigurasi Parameter Charging
           </p>
 
-          {/* Voltage Selection */}
-          <div className="mb-6">
-            <label className="block text-sm font-semibold text-gray-700 mb-3">
+          <div className="mb-4 sm:mb-6">
+            <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-2 sm:mb-3">
               Target Voltage
             </label>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-3 sm:gap-4">
               <button
                 onClick={() => setVoltageChoice('3.7')}
-                className={`p-4 rounded-xl border-2 transition-all ${
+                className={`p-3 sm:p-4 rounded-xl border-2 transition-all ${
                   voltageChoice === '3.7'
                     ? 'border-blue-500 bg-blue-50 text-blue-700'
                     : 'border-gray-200 bg-white text-gray-600 hover:border-blue-300'
                 }`}
               >
-                <div className="text-2xl font-bold mb-1">3.7V</div>
+                <div className="text-xl sm:text-2xl font-bold mb-1">3.7V</div>
                 <div className="text-xs">LiFePO4 / Storage</div>
               </button>
               <button
                 onClick={() => setVoltageChoice('4.2')}
-                className={`p-4 rounded-xl border-2 transition-all ${
+                className={`p-3 sm:p-4 rounded-xl border-2 transition-all ${
                   voltageChoice === '4.2'
                     ? 'border-blue-500 bg-blue-50 text-blue-700'
                     : 'border-gray-200 bg-white text-gray-600 hover:border-blue-300'
                 }`}
               >
-                <div className="text-2xl font-bold mb-1">4.2V</div>
+                <div className="text-xl sm:text-2xl font-bold mb-1">4.2V</div>
                 <div className="text-xs">Li-ion / Full Charge</div>
               </button>
             </div>
           </div>
 
-          {/* Capacity Selection */}
-          <div className="mb-8">
-            <label className="block text-sm font-semibold text-gray-700 mb-3">
+          <div className="mb-6 sm:mb-8">
+            <label className="block text-xs sm:text-sm font-semibold text-gray-700 mb-2 sm:mb-3">
               Battery Capacity
             </label>
-            <div className="grid grid-cols-3 gap-3 mb-3">
+            <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-3">
               <button
                 onClick={() => setCapacityChoice('1200')}
-                className={`p-4 rounded-xl border-2 transition-all ${
+                className={`p-3 sm:p-4 rounded-xl border-2 transition-all ${
                   capacityChoice === '1200'
                     ? 'border-green-500 bg-green-50 text-green-700'
                     : 'border-gray-200 bg-white text-gray-600 hover:border-green-300'
                 }`}
               >
-                <div className="text-2xl font-bold mb-1">1200</div>
+                <div className="text-xl sm:text-2xl font-bold mb-1">1200</div>
                 <div className="text-xs">mAh</div>
               </button>
               <button
                 onClick={() => setCapacityChoice('2200')}
-                className={`p-4 rounded-xl border-2 transition-all ${
+                className={`p-3 sm:p-4 rounded-xl border-2 transition-all ${
                   capacityChoice === '2200'
                     ? 'border-green-500 bg-green-50 text-green-700'
                     : 'border-gray-200 bg-white text-gray-600 hover:border-green-300'
                 }`}
               >
-                <div className="text-2xl font-bold mb-1">2200</div>
+                <div className="text-xl sm:text-2xl font-bold mb-1">2200</div>
                 <div className="text-xs">mAh</div>
               </button>
               <button
                 onClick={() => setCapacityChoice('custom')}
-                className={`p-4 rounded-xl border-2 transition-all ${
+                className={`p-3 sm:p-4 rounded-xl border-2 transition-all ${
                   capacityChoice === 'custom'
                     ? 'border-green-500 bg-green-50 text-green-700'
                     : 'border-gray-200 bg-white text-gray-600 hover:border-green-300'
                 }`}
               >
-                <div className="text-xl font-bold mb-1">Custom</div>
+                <div className="text-lg sm:text-xl font-bold mb-1">Custom</div>
                 <div className="text-xs">Enter value</div>
               </button>
             </div>
@@ -922,7 +866,7 @@ const BatteryChargerDashboard = () => {
                   placeholder="Enter capacity (100-5000 mAh)"
                   min="100"
                   max="5000"
-                  className="w-full px-4 py-3 border-2 border-green-300 rounded-xl focus:border-green-500 focus:outline-none text-lg font-semibold text-gray-800"
+                  className="w-full px-3 sm:px-4 py-2 sm:py-3 border-2 border-green-300 rounded-xl focus:border-green-500 focus:outline-none text-base sm:text-lg font-semibold text-gray-800"
                 />
                 <p className="text-xs text-gray-500 mt-2">
                   Untuk kapasitas &gt; 2200mAh, Iref tetap 1.1A (max limit)
@@ -931,30 +875,27 @@ const BatteryChargerDashboard = () => {
             )}
           </div>
 
-          {/* Calculated Parameters Display */}
-          <div className="bg-gray-50 rounded-xl p-4 mb-6">
-            {/* Toggle Manual/Auto Mode */}
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-gray-700">Calculated Parameters:</h3>
+          <div className="bg-gray-50 rounded-xl p-3 sm:p-4 mb-4 sm:mb-6">
+            <div className="flex items-center justify-between mb-3 sm:mb-4">
+              <h3 className="text-xs sm:text-sm font-semibold text-gray-700">Calculated Parameters:</h3>
               <button
                 onClick={() => {
                   setManualMode(!manualMode);
                   setManualVref('');
                   setManualIref('');
                 }}
-                className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                className={`px-2 sm:px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
                   manualMode 
                     ? 'bg-orange-500 text-white' 
                     : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
                 }`}
               >
-                {manualMode ? '🔧 Manual Mode' : '🤖 Auto Mode'}
+                {manualMode ? '🔧 Manual' : '🤖 Auto'}
               </button>
             </div>
           
             {!manualMode ? (
-              // AUTO MODE
-              <div className="space-y-2 text-sm">
+              <div className="space-y-2 text-xs sm:text-sm">
                 <div className="flex justify-between">
                   <span className="text-gray-600">Vref:</span>
                   <span className="font-semibold text-gray-800">
@@ -979,16 +920,14 @@ const BatteryChargerDashboard = () => {
                 </div>
                 {capacityChoice === 'custom' && parseInt(customCapacity || '0') > 2200 && (
                   <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
-                    ⚠️ Kapasitas &gt; 2200mAh, Iref dibatasi ke 1.1A (safety limit)
+                    ⚠️ Kapasitas &gt; 2200mAh, Iref dibatasi ke 1.1A
                   </div>
                 )}
               </div>
             ) : (
-              // ✅ MANUAL MODE
-              <div className="space-y-4">
-                {/* Manual Vref Input */}
+              <div className="space-y-3 sm:space-y-4">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-2">
+                  <label className="block text-xs font-semibold text-gray-700 mb-1 sm:mb-2">
                     Vref (Voltage Reference)
                   </label>
                   <input
@@ -997,16 +936,15 @@ const BatteryChargerDashboard = () => {
                     value={manualVref}
                     onChange={(e) => setManualVref(e.target.value)}
                     placeholder={`Max: ${getMaxVref().toFixed(2)}V`}
-                    className="w-full px-3 py-2 border-2 border-orange-300 rounded-lg focus:border-orange-500 focus:outline-none text-sm font-semibold"
+                    className="w-full px-2 sm:px-3 py-1.5 sm:py-2 border-2 border-orange-300 rounded-lg focus:border-orange-500 focus:outline-none text-sm font-semibold"
                   />
                   <p className="text-xs text-red-500 mt-1">
-                    ⚠️ Maksimal: {getMaxVref().toFixed(2)}V (Target {voltageChoice}V - 0.1V)
+                    ⚠️ Max: {getMaxVref().toFixed(2)}V
                   </p>
                 </div>
           
-                {/* Manual Iref Input */}
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-2">
+                  <label className="block text-xs font-semibold text-gray-700 mb-1 sm:mb-2">
                     Iref (Current Reference)
                   </label>
                   <input
@@ -1015,28 +953,24 @@ const BatteryChargerDashboard = () => {
                     value={manualIref}
                     onChange={(e) => setManualIref(e.target.value)}
                     placeholder={`Max: ${getMaxIref().toFixed(2)}A`}
-                    className="w-full px-3 py-2 border-2 border-orange-300 rounded-lg focus:border-orange-500 focus:outline-none text-sm font-semibold"
+                    className="w-full px-2 sm:px-3 py-1.5 sm:py-2 border-2 border-orange-300 rounded-lg focus:border-orange-500 focus:outline-none text-sm font-semibold"
                   />
                   <p className="text-xs text-red-500 mt-1">
-                    ⚠️ Min: 0.1A (100mA) | Max: {getMaxIref().toFixed(2)}A ({(getMaxIref() * 1000).toFixed(0)}mA)
-                    {capacityChoice === 'custom' && getMaxIref() >= 1.5 && (
-                      <span className="block mt-1">📌 Dibatasi 1.5A (max absolute)</span>
-                    )}
+                    ⚠️ Min: 0.1A | Max: {getMaxIref().toFixed(2)}A
                   </p>
                 </div>
           
                 <div className="bg-orange-50 border border-orange-200 rounded-lg p-2 text-xs text-orange-800">
-                  ℹ️ Manual mode: Anda mengatur Vref dan Iref sendiri sesuai kebutuhan
+                  ℹ️ Manual mode: Atur Vref dan Iref sendiri
                 </div>
               </div>
             )}
           </div>
 
-          {/* Submit Button */}
           <button
             onClick={handleSendConfiguration}
             disabled={configSending}
-            className={`w-full py-4 rounded-xl font-bold text-lg flex items-center justify-center gap-3 transition-all ${
+            className={`w-full py-3 sm:py-4 rounded-xl font-bold text-base sm:text-lg flex items-center justify-center gap-2 sm:gap-3 transition-all ${
               configSending
                 ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                 : 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white hover:from-blue-600 hover:to-indigo-600 shadow-lg hover:shadow-xl'
@@ -1044,19 +978,19 @@ const BatteryChargerDashboard = () => {
           >
             {configSending ? (
               <>
-                <RefreshCw className="w-6 h-6 animate-spin" />
+                <RefreshCw className="w-5 h-5 sm:w-6 sm:h-6 animate-spin" />
                 Mengirim...
               </>
             ) : (
               <>
-                <CheckCircle className="w-6 h-6" />
+                <CheckCircle className="w-5 h-5 sm:w-6 sm:h-6" />
                 Selesai & Mulai Charging
-                <ArrowRight className="w-5 h-5" />
+                <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5" />
               </>
             )}
           </button>
 
-          <p className="text-xs text-gray-400 text-center mt-4">
+          <p className="text-xs text-gray-400 text-center mt-3 sm:mt-4">
             Konfigurasi akan dikirim ke ESP32 via Firebase RTDB
           </p>
         </div>
@@ -1064,123 +998,114 @@ const BatteryChargerDashboard = () => {
     );
   }
 
-  // ========================================
-  // MONITORING SCREEN (Original Dashboard)
-  // ========================================
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 md:p-8 overflow-x-hidden">
-      <div className="max-w-7xl mx-auto">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-2 sm:p-4 lg:p-6 xl:p-8 overflow-x-hidden">
+      <div className="max-w-7xl mx-auto w-full">
         
-        {/* Header */}
-        <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="bg-blue-500 p-3 rounded-xl">
-                <Battery className="w-8 h-8 text-white" />
+        <div className="bg-white rounded-xl sm:rounded-2xl shadow-xl p-3 sm:p-4 lg:p-6 mb-3 sm:mb-4 lg:mb-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="bg-blue-500 p-2 sm:p-3 rounded-xl">
+                <Battery className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
               </div>
               <div>
-                <h1 className="text-3xl font-bold text-gray-800">Battery Charger Monitor</h1>
-                <p className="text-gray-500">Real-time Monitoring Dashboard</p>
+                <h1 className="text-lg sm:text-2xl lg:text-3xl font-bold text-gray-800">Battery Charger Monitor</h1>
+                <p className="text-xs sm:text-sm text-gray-500">Real-time Monitoring Dashboard</p>
               </div>
             </div>
-            <div className="flex items-center gap-4">
-              <div className={`px-4 py-2 rounded-xl flex items-center gap-2 ${
+            <div className="flex items-center gap-2 sm:gap-4 w-full sm:w-auto">
+              <div className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl flex items-center gap-1 sm:gap-2 text-xs sm:text-sm flex-1 sm:flex-none ${
                 isLoggingActive ? 'bg-green-100 text-green-700' : 
                 currentState.toUpperCase() === 'DETECT' ? 'bg-yellow-100 text-yellow-700' :
                 'bg-gray-100 text-gray-500'
               }`}>
-                <div className={`w-3 h-3 rounded-full ${
+                <div className={`w-2 h-2 sm:w-3 sm:h-3 rounded-full ${
                   isLoggingActive ? 'bg-green-500 animate-pulse' : 
                   currentState.toUpperCase() === 'DETECT' ? 'bg-yellow-500 animate-pulse' :
                   'bg-gray-400'
                 }`} />
-                <span className="font-medium text-sm">
-                  {isLoggingActive ? `Logging: ${currentState}` : 
-                   currentState.toUpperCase() === 'DETECT' ? 'Waiting for state change...' :
-                   `Standby (${currentState})`}
+                <span className="font-medium truncate">
+                  {isLoggingActive ? `Log: ${currentState}` : 
+                   currentState.toUpperCase() === 'DETECT' ? 'Waiting...' :
+                   `Standby`}
                 </span>
               </div>
-              <button onClick={loadHistoryData} className="p-3 bg-blue-50 hover:bg-blue-100 rounded-xl transition-colors">
-                <RefreshCw className="w-6 h-6 text-blue-500" />
+              <button onClick={loadHistoryData} className="p-2 sm:p-3 bg-blue-50 hover:bg-blue-100 rounded-xl transition-colors flex-shrink-0">
+                <RefreshCw className="w-5 h-5 sm:w-6 sm:h-6 text-blue-500" />
               </button>
             </div>
           </div>
         </div>
 
-        {/* Value Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6 mb-4 md:mb-6">
-          <div className="bg-gradient-to-br from-orange-500 to-red-500 rounded-2xl shadow-xl p-6 text-white">
-            <div className="flex items-center justify-between mb-4">
-              <div className="bg-white/20 p-3 rounded-xl"><Thermometer className="w-6 h-6" /></div>
-              <span className="text-sm font-medium bg-white/20 px-3 py-1 rounded-full">Temperature</span>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 lg:gap-4 xl:gap-6 mb-3 sm:mb-4 lg:mb-6">
+          <div className="bg-gradient-to-br from-orange-500 to-red-500 rounded-xl sm:rounded-2xl shadow-xl p-3 sm:p-4 lg:p-6 text-white">
+            <div className="flex items-center justify-between mb-2 sm:mb-4">
+              <div className="bg-white/20 p-2 sm:p-3 rounded-xl"><Thermometer className="w-4 h-4 sm:w-6 sm:h-6" /></div>
+              <span className="text-xs font-medium bg-white/20 px-2 py-0.5 sm:px-3 sm:py-1 rounded-full">Temp</span>
             </div>
-            <div className="text-3xl sm:text-4xl md:text-5xl font-bold mb-2">{latestTemp?.celsius != null ? latestTemp.celsius.toFixed(1) : '--'}</div>
-            <p className="text-white/90 text-sm sm:text-base md:text-lg font-medium">°Celsius</p>
+            <div className="text-2xl sm:text-3xl lg:text-4xl xl:text-5xl font-bold mb-1 sm:mb-2">{latestTemp?.celsius != null ? latestTemp.celsius.toFixed(1) : '--'}</div>
+            <p className="text-white/90 text-xs sm:text-sm lg:text-base xl:text-lg font-medium">°Celsius</p>
           </div>
 
-          <div className="bg-gradient-to-br from-green-500 to-emerald-500 rounded-2xl shadow-xl p-6 text-white">
-            <div className="flex items-center justify-between mb-4">
-              <div className="bg-white/20 p-3 rounded-xl"><Zap className="w-6 h-6" /></div>
-              <span className="text-sm font-medium bg-white/20 px-3 py-1 rounded-full">Voltage</span>
+          <div className="bg-gradient-to-br from-green-500 to-emerald-500 rounded-xl sm:rounded-2xl shadow-xl p-3 sm:p-4 lg:p-6 text-white">
+            <div className="flex items-center justify-between mb-2 sm:mb-4">
+              <div className="bg-white/20 p-2 sm:p-3 rounded-xl"><Zap className="w-4 h-4 sm:w-6 sm:h-6" /></div>
+              <span className="text-xs font-medium bg-white/20 px-2 py-0.5 sm:px-3 sm:py-1 rounded-full">Volt</span>
             </div>
-            <div className="text-5xl font-bold mb-2">{latestCharger?.voltage != null ? latestCharger.voltage.toFixed(2) : '--'}</div>
-            <p className="text-white/90 text-lg font-medium">Volts</p>
+            <div className="text-2xl sm:text-3xl lg:text-4xl xl:text-5xl font-bold mb-1 sm:mb-2">{latestCharger?.voltage != null ? latestCharger.voltage.toFixed(2) : '--'}</div>
+            <p className="text-white/90 text-xs sm:text-sm lg:text-base xl:text-lg font-medium">Volts</p>
           </div>
 
-          <div className="bg-gradient-to-br from-purple-500 to-indigo-500 rounded-2xl shadow-xl p-6 text-white">
-            <div className="flex items-center justify-between mb-4">
-              <div className="bg-white/20 p-3 rounded-xl"><Activity className="w-6 h-6" /></div>
-              <span className="text-sm font-medium bg-white/20 px-3 py-1 rounded-full">Current</span>
+          <div className="bg-gradient-to-br from-purple-500 to-indigo-500 rounded-xl sm:rounded-2xl shadow-xl p-3 sm:p-4 lg:p-6 text-white">
+            <div className="flex items-center justify-between mb-2 sm:mb-4">
+              <div className="bg-white/20 p-2 sm:p-3 rounded-xl"><Activity className="w-4 h-4 sm:w-6 sm:h-6" /></div>
+              <span className="text-xs font-medium bg-white/20 px-2 py-0.5 sm:px-3 sm:py-1 rounded-full">Curr</span>
             </div>
-            <div className="text-5xl font-bold mb-2">{latestCharger?.current != null ? latestCharger.current.toFixed(2) : '--'}</div>
-            <p className="text-white/90 text-lg font-medium">Amperes</p>
+            <div className="text-2xl sm:text-3xl lg:text-4xl xl:text-5xl font-bold mb-1 sm:mb-2">{latestCharger?.current != null ? latestCharger.current.toFixed(2) : '--'}</div>
+            <p className="text-white/90 text-xs sm:text-sm lg:text-base xl:text-lg font-medium">Amperes</p>
           </div>
 
-          <div className={`rounded-2xl shadow-xl p-6 text-white ${
+          <div className={`rounded-xl sm:rounded-2xl shadow-xl p-3 sm:p-4 lg:p-6 text-white ${
             currentState.toUpperCase() === 'DONE' ? 'bg-gradient-to-br from-green-500 to-emerald-600' :
             currentState.toUpperCase() === 'IDLE' || currentState.toUpperCase() === 'WAIT_CFG' ? 'bg-gradient-to-br from-gray-400 to-gray-500' :
             currentState.toUpperCase() === 'DETECT' ? 'bg-gradient-to-br from-yellow-500 to-orange-500' :
             'bg-gradient-to-br from-blue-500 to-cyan-500'
           }`}>
-            <div className="flex items-center justify-between mb-4">
-              <div className="bg-white/20 p-3 rounded-xl"><Battery className="w-6 h-6" /></div>
-              <span className="text-sm font-medium bg-white/20 px-3 py-1 rounded-full">Status</span>
+            <div className="flex items-center justify-between mb-2 sm:mb-4">
+              <div className="bg-white/20 p-2 sm:p-3 rounded-xl"><Battery className="w-4 h-4 sm:w-6 sm:h-6" /></div>
+              <span className="text-xs font-medium bg-white/20 px-2 py-0.5 sm:px-3 sm:py-1 rounded-full">Status</span>
             </div>
-            <div className="text-4xl font-bold mb-2">{currentState || 'Unknown'}</div>
-            <p className="text-white/90 text-sm font-medium">Charger State</p>
+            <div className="text-xl sm:text-2xl lg:text-3xl xl:text-4xl font-bold mb-1 sm:mb-2">{currentState || 'Unknown'}</div>
+            <p className="text-white/90 text-xs sm:text-sm font-medium">Charger State</p>
           </div>
         </div>
 
-        {/* Statistics */}
-        <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
-          <div className="flex items-center justify-between">
+        <div className="bg-white rounded-xl sm:rounded-2xl shadow-xl p-3 sm:p-4 lg:p-6 mb-3 sm:mb-4 lg:mb-6">
+          <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3 sm:gap-4">
             
-            {/* BAGIAN KIRI: Info (TIDAK BERUBAH) */}
-            <div className="flex items-center gap-3">
-              <div className="bg-green-100 p-3 rounded-xl">
-                <TrendingUp className="w-6 h-6 text-green-600" />
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="bg-green-100 p-2 sm:p-3 rounded-xl flex-shrink-0">
+                <TrendingUp className="w-4 h-4 sm:w-6 sm:h-6 text-green-600" />
               </div>
               <div>
-                <h3 className="text-lg font-semibold text-gray-800">Current Charging Cycle</h3>
-                <p className="text-sm text-gray-500">
-                  {stats.total} data points logged
+                <h3 className="text-sm sm:text-base lg:text-lg font-semibold text-gray-800">Current Charging Cycle</h3>
+                <p className="text-xs sm:text-sm text-gray-500">
+                  {stats.total} data points
                   {loggingStartTime && isLoggingActive && (
                     <span className="ml-2 text-blue-600">
-                      • Started {new Date(loggingStartTime).toLocaleTimeString('id-ID')}
+                      • {new Date(loggingStartTime).toLocaleTimeString('id-ID')}
                     </span>
                   )}
                 </p>
               </div>
             </div>
             
-            {/* ✅ BAGIAN KANAN: CONTAINER 2 TOMBOL (BARU) ✅ */}
-            <div className="flex items-center gap-3">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full lg:w-auto">
               
-              {/* ✅ TOMBOL 1: Reset Charging (BARU DITAMBAHKAN) */}
               <button 
                 onClick={handleResetCharging}     
                 disabled={resetLoading}           
-                className={`px-6 py-3 rounded-xl font-semibold flex items-center gap-2 transition-all ${
+                className={`px-3 sm:px-4 lg:px-6 py-2 sm:py-2.5 lg:py-3 rounded-xl font-semibold flex items-center justify-center gap-1 sm:gap-2 transition-all text-xs sm:text-sm ${
                   resetLoading 
                     ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
                     : 'bg-orange-500 hover:bg-orange-600 text-white shadow-lg hover:shadow-xl'
@@ -1188,22 +1113,23 @@ const BatteryChargerDashboard = () => {
               >
                 {resetLoading ? (
                   <>
-                    <RefreshCw className="w-5 h-5 animate-spin" />
-                    Resetting...
+                    <RefreshCw className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
+                    <span className="hidden sm:inline">Resetting...</span>
+                    <span className="sm:hidden">...</span>
                   </>
                 ) : (
                   <>
-                    <RefreshCw className="w-5 h-5" />
-                    Reset Charging
+                    <RefreshCw className="w-4 h-4 sm:w-5 sm:h-5" />
+                    <span className="hidden sm:inline">Reset Charging</span>
+                    <span className="sm:hidden">Reset</span>
                   </>
                 )}
               </button>
 
-              {/* ✅ TOMBOL 2: DONE & Clear (DIPINDAH KE DALAM CONTAINER) */}
               <button 
                 onClick={handleDoneButton} 
                 disabled={doneLoading || currentState.toUpperCase() !== 'DONE'}
-                className={`px-6 py-3 rounded-xl font-semibold flex items-center gap-2 transition-all ${
+                className={`px-3 sm:px-4 lg:px-6 py-2 sm:py-2.5 lg:py-3 rounded-xl font-semibold flex items-center justify-center gap-1 sm:gap-2 transition-all text-xs sm:text-sm ${
                   currentState.toUpperCase() === 'DONE' 
                     ? 'bg-green-500 hover:bg-green-600 text-white shadow-lg' 
                     : 'bg-gray-200 text-gray-400 cursor-not-allowed'
@@ -1211,29 +1137,31 @@ const BatteryChargerDashboard = () => {
               >
                 {doneLoading ? (
                   <>
-                    <RefreshCw className="w-5 h-5 animate-spin" />
-                    Clearing...
+                    <RefreshCw className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
+                    <span className="hidden sm:inline">Clearing...</span>
+                    <span className="sm:hidden">...</span>
                   </>
                 ) : (
                   <>
-                    <CheckCircle className="w-5 h-5" />
-                    DONE & Clear
+                    <CheckCircle className="w-4 h-4 sm:w-5 sm:h-5" />
+                    <span className="hidden sm:inline">DONE & Clear</span>
+                    <span className="sm:hidden">Clear</span>
                   </>
                 )}
               </button>
               
             </div> 
             
-          </div> 
-          {/* SOC Battery Bar */}
-          <div className="mt-4 bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-4">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <Battery className="w-5 h-5 text-green-600" />
-                <span className="text-sm font-semibold text-gray-700">State of Charge (SOC)</span>
+          </div>
+
+          <div className="mt-3 sm:mt-4 bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-3 sm:p-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 mb-2 sm:mb-3">
+              <div className="flex items-center gap-1 sm:gap-2">
+                <Battery className="w-4 h-4 sm:w-5 sm:h-5 text-green-600" />
+                <span className="text-xs sm:text-sm font-semibold text-gray-700">State of Charge (SOC)</span>
               </div>
-              <div className="text-right">
-                <span className="text-2xl font-bold text-green-600">
+              <div className="text-left sm:text-right w-full sm:w-auto">
+                <span className="text-xl sm:text-2xl font-bold text-green-600">
                   {socPercentage.toFixed(1)}%
                 </span>
                 <p className="text-xs text-gray-500">
@@ -1242,10 +1170,9 @@ const BatteryChargerDashboard = () => {
               </div>
             </div>
             
-            {/* Progress Bar */}
-            <div className="relative w-full h-8 bg-gray-200 rounded-full overflow-hidden shadow-inner">
+            <div className="relative w-full h-6 sm:h-8 bg-gray-200 rounded-full overflow-hidden shadow-inner">
               <div 
-                className={`h-full rounded-full transition-all duration-500 flex items-center justify-end px-3 ${
+                className={`h-full rounded-full transition-all duration-500 flex items-center justify-end px-2 sm:px-3 ${
                   socPercentage >= 80 ? 'bg-gradient-to-r from-green-400 to-green-500' :
                   socPercentage >= 50 ? 'bg-gradient-to-r from-yellow-400 to-yellow-500' :
                   socPercentage >= 20 ? 'bg-gradient-to-r from-orange-400 to-orange-500' :
@@ -1261,140 +1188,144 @@ const BatteryChargerDashboard = () => {
               </div>
             </div>
             
-            {/* Voltage Info */}
-            <div className="mt-3 flex justify-between text-xs text-gray-600">
+            <div className="mt-2 sm:mt-3 flex justify-between text-xs text-gray-600">
               <span>Current: {latestCharger?.voltage?.toFixed(2) || '--'}V</span>
               <span>Target: {targetVoltage}V</span>
             </div>
           </div>
         </div>
 
-        {/* CHART 1: VOLTAGE & CURRENT */}
-        <div className="bg-white rounded-2xl shadow-xl p-6 mb-6" id="charger-chart">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-2">
-              <Zap className="w-6 h-6 text-green-500" />
-              <h3 className="text-xl font-bold text-gray-800">
-                Voltage & Current History ({chargerHistory.length} readings)
+        <div className="bg-white rounded-xl sm:rounded-2xl shadow-xl p-3 sm:p-4 lg:p-6 mb-3 sm:mb-4 lg:mb-6 overflow-hidden" id="charger-chart">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3 mb-3 sm:mb-4 lg:mb-6">
+            <div className="flex items-center gap-1 sm:gap-2">
+              <Zap className="w-4 h-4 sm:w-5 sm:h-5 lg:w-6 lg:h-6 text-green-500" />
+              <h3 className="text-sm sm:text-base lg:text-xl font-bold text-gray-800">
+                Voltage & Current ({chargerHistory.length})
               </h3>
             </div>
             
-            {/* Download Buttons */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
               <button
                 onClick={() => openChartInNewTab('charger-chart', 'voltage_current_chart')}
-                className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center gap-2 transition-all text-sm font-semibold"
-                title="Open chart in new tab for download"
+                className="px-2 sm:px-3 lg:px-4 py-1.5 sm:py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center gap-1 sm:gap-2 transition-all text-xs sm:text-sm font-semibold"
               >
-                <Camera className="w-4 h-4" />
-                Open Image
+                <Camera className="w-3 h-3 sm:w-4 sm:h-4" />
+                <span className="hidden sm:inline">Open Image</span>
+                <span className="sm:hidden">📷</span>
               </button>
               <button
                 onClick={downloadChargerCSV}
-                className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center gap-2 transition-all text-sm font-semibold"
-                title="Download Data as CSV"
+                className="px-2 sm:px-3 lg:px-4 py-1.5 sm:py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center gap-1 sm:gap-2 transition-all text-xs sm:text-sm font-semibold"
               >
-                <Download className="w-4 h-4" />
-                CSV
+                <Download className="w-3 h-3 sm:w-4 sm:h-4" />
+                <span className="hidden sm:inline">CSV</span>
+                <span className="sm:hidden">💾</span>
               </button>
             </div>
           </div>
           
           {chargerChartData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={400}>
-              <LineChart data={chargerChartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
-                <XAxis 
-                  dataKey="time" 
-                  stroke="#666" 
-                  style={{ fontSize: '12px' }} 
-                  angle={-45} 
-                  textAnchor="end" 
-                  height={80} 
-                  interval={Math.floor(chargerChartData.length / 20)} 
-                />
-                <YAxis yAxisId="left" stroke="#10b981" style={{ fontSize: '12px' }} label={{ value: 'Voltage (V)', angle: -90, position: 'insideLeft' }} />
-                <YAxis yAxisId="right" orientation="right" stroke="#8b5cf6" style={{ fontSize: '12px' }} label={{ value: 'Current (A)', angle: 90, position: 'insideRight' }} />
-                <Tooltip content={<ChargerTooltip />} />
-                <Legend wrapperStyle={{ paddingTop: '20px' }} />
-                <Line yAxisId="left" type="monotone" dataKey="voltage" stroke="#10b981" strokeWidth={2} dot={false} name="Voltage (V)" activeDot={{ r: 6 }} />
-                <Line yAxisId="right" type="monotone" dataKey="current" stroke="#8b5cf6" strokeWidth={2} dot={false} name="Current (A)" activeDot={{ r: 6 }} />
-              </LineChart>
-            </ResponsiveContainer>
+            <div className="w-full overflow-x-auto -mx-3 sm:-mx-4 lg:-mx-6 px-3 sm:px-4 lg:px-6">
+              <div className="min-w-[500px]">
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={chargerChartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                    <XAxis 
+                      dataKey="time" 
+                      stroke="#666" 
+                      style={{ fontSize: '10px' }} 
+                      angle={-45} 
+                      textAnchor="end" 
+                      height={70} 
+                      interval={Math.floor(chargerChartData.length / 12)} 
+                      tick={{ fontSize: 10 }}
+                    />
+                    <YAxis yAxisId="left" stroke="#10b981" style={{ fontSize: '10px' }} label={{ value: 'Voltage (V)', angle: -90, position: 'insideLeft', style: { fontSize: '10px' } }} />
+                    <YAxis yAxisId="right" orientation="right" stroke="#8b5cf6" style={{ fontSize: '10px' }} label={{ value: 'Current (A)', angle: 90, position: 'insideRight', style: { fontSize: '10px' } }} />
+                    <Tooltip content={<ChargerTooltip />} />
+                    <Legend wrapperStyle={{ paddingTop: '10px', fontSize: '11px' }} />
+                    <Line yAxisId="left" type="monotone" dataKey="voltage" stroke="#10b981" strokeWidth={2} dot={false} name="Voltage (V)" activeDot={{ r: 6 }} />
+                    <Line yAxisId="right" type="monotone" dataKey="current" stroke="#8b5cf6" strokeWidth={2} dot={false} name="Current (A)" activeDot={{ r: 6 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
           ) : (
-            <div className="h-96 flex items-center justify-center text-gray-400">
+            <div className="h-64 sm:h-80 lg:h-96 flex items-center justify-center text-gray-400">
               <div className="text-center">
-                <Activity className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                <p>Waiting for charging cycle...</p>
-                <p className="text-sm mt-2">Logging starts when <strong>DETECT</strong> changes to any other state</p>
+                <Activity className="w-12 h-12 sm:w-16 sm:h-16 mx-auto mb-3 sm:mb-4 opacity-50" />
+                <p className="text-sm sm:text-base">Waiting for charging cycle...</p>
+                <p className="text-xs sm:text-sm mt-2">Logging starts when <strong>DETECT</strong> changes</p>
               </div>
             </div>
           )}
         </div>
 
-        {/* CHART 2: TEMPERATURE */}
-        <div className="bg-white rounded-2xl shadow-xl p-6 mb-6" id="temperature-chart">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-2">
-              <Thermometer className="w-6 h-6 text-orange-500" />
-              <h3 className="text-xl font-bold text-gray-800">
-                Temperature History ({tempHistory.length} readings)
+        <div className="bg-white rounded-xl sm:rounded-2xl shadow-xl p-3 sm:p-4 lg:p-6 mb-3 sm:mb-4 lg:mb-6 overflow-hidden" id="temperature-chart">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3 mb-3 sm:mb-4 lg:mb-6">
+            <div className="flex items-center gap-1 sm:gap-2">
+              <Thermometer className="w-4 h-4 sm:w-5 sm:h-5 lg:w-6 lg:h-6 text-orange-500" />
+              <h3 className="text-sm sm:text-base lg:text-xl font-bold text-gray-800">
+                Temperature History ({tempHistory.length})
               </h3>
             </div>
-            {/* Download Buttons */}
-            <div className="flex items-center gap-2">
-            <button
-              onClick={() => openChartInNewTab('temperature-chart', 'temperature_chart')}
-              className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center gap-2 transition-all text-sm font-semibold"
-              title="Open chart in new tab for download"
-            >
-              <Camera className="w-4 h-4" />
-              Open Image
-            </button>
+            <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
+              <button
+                onClick={() => openChartInNewTab('temperature-chart', 'temperature_chart')}
+                className="px-2 sm:px-3 lg:px-4 py-1.5 sm:py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center gap-1 sm:gap-2 transition-all text-xs sm:text-sm font-semibold"
+              >
+                <Camera className="w-3 h-3 sm:w-4 sm:h-4" />
+                <span className="hidden sm:inline">Open Image</span>
+                <span className="sm:hidden">📷</span>
+              </button>
               <button
                 onClick={downloadTemperatureCSV}
-                className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center gap-2 transition-all text-sm font-semibold"
-                title="Download Data as CSV"
+                className="px-2 sm:px-3 lg:px-4 py-1.5 sm:py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center gap-1 sm:gap-2 transition-all text-xs sm:text-sm font-semibold"
               >
-                <Download className="w-4 h-4" />
-                CSV
+                <Download className="w-3 h-3 sm:w-4 sm:h-4" />
+                <span className="hidden sm:inline">CSV</span>
+                <span className="sm:hidden">💾</span>
               </button>
             </div>
           </div>
           
           {tempChartData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={400}>
-              <LineChart data={tempChartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
-                <XAxis 
-                  dataKey="time" 
-                  stroke="#666" 
-                  style={{ fontSize: '12px' }} 
-                  angle={-45} 
-                  textAnchor="end" 
-                  height={80} 
-                  interval={Math.floor(tempChartData.length / 20)} 
-                />
-                <YAxis yAxisId="left" stroke="#f97316" style={{ fontSize: '12px' }} label={{ value: 'Celsius (°C)', angle: -90, position: 'insideLeft' }} />
-                <YAxis yAxisId="right" orientation="right" stroke="#3b82f6" style={{ fontSize: '12px' }} label={{ value: 'Fahrenheit (°F)', angle: 90, position: 'insideRight' }} />
-                <Tooltip content={<TempTooltip />} />
-                <Legend wrapperStyle={{ paddingTop: '20px' }} />
-                <Line yAxisId="left" type="monotone" dataKey="celsius" stroke="#f97316" strokeWidth={2} dot={false} name="Temperature (°C)" activeDot={{ r: 6 }} />
-                <Line yAxisId="right" type="monotone" dataKey="fahrenheit" stroke="#3b82f6" strokeWidth={2} dot={false} name="Temperature (°F)" activeDot={{ r: 6 }} />
-              </LineChart>
-            </ResponsiveContainer>
+            <div className="w-full overflow-x-auto -mx-3 sm:-mx-4 lg:-mx-6 px-3 sm:px-4 lg:px-6">
+              <div className="min-w-[500px]">
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={tempChartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                    <XAxis 
+                      dataKey="time" 
+                      stroke="#666" 
+                      style={{ fontSize: '10px' }} 
+                      angle={-45} 
+                      textAnchor="end" 
+                      height={70} 
+                      interval={Math.floor(tempChartData.length / 12)} 
+                      tick={{ fontSize: 10 }}
+                    />
+                    <YAxis yAxisId="left" stroke="#f97316" style={{ fontSize: '10px' }} label={{ value: 'Celsius (°C)', angle: -90, position: 'insideLeft', style: { fontSize: '10px' } }} />
+                    <YAxis yAxisId="right" orientation="right" stroke="#3b82f6" style={{ fontSize: '10px' }} label={{ value: 'Fahrenheit (°F)', angle: 90, position: 'insideRight', style: { fontSize: '10px' } }} />
+                    <Tooltip content={<TempTooltip />} />
+                    <Legend wrapperStyle={{ paddingTop: '10px', fontSize: '11px' }} />
+                    <Line yAxisId="left" type="monotone" dataKey="celsius" stroke="#f97316" strokeWidth={2} dot={false} name="Temperature (°C)" activeDot={{ r: 6 }} />
+                    <Line yAxisId="right" type="monotone" dataKey="fahrenheit" stroke="#3b82f6" strokeWidth={2} dot={false} name="Temperature (°F)" activeDot={{ r: 6 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
           ) : (
-            <div className="h-96 flex items-center justify-center text-gray-400">
+            <div className="h-64 sm:h-80 lg:h-96 flex items-center justify-center text-gray-400">
               <div className="text-center">
-                <Activity className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                <p>Waiting for charging cycle...</p>
+                <Activity className="w-12 h-12 sm:w-16 sm:h-16 mx-auto mb-3 sm:mb-4 opacity-50" />
+                <p className="text-sm sm:text-base">Waiting for charging cycle...</p>
               </div>
             </div>
           )}
         </div>
 
-        {/* Footer */}
-        <div className="text-center mt-8 text-gray-500 text-sm">
+        <div className="text-center mt-4 sm:mt-6 lg:mt-8 text-gray-500 text-xs sm:text-sm">
           <p>Battery Charger Monitor - State Machine Controlled Logging</p>
           <p className="mt-1">Web → Firebase RTDB → ESP32 Configuration System</p>
         </div>
@@ -1404,4 +1335,3 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
-
