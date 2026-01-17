@@ -81,8 +81,8 @@ const BatteryChargerDashboard = () => {
       currentReadings: []
     }
   });
-const [currentPhase, setCurrentPhase] = useState(null); // 'cc', 'transisi', 'cv', null
-const prevPhaseRef = useRef(null);
+  const [currentPhase, setCurrentPhase] = useState(null); // 'cc', 'transisi', 'cv', null
+  const prevPhaseRef = useRef(null);
   useEffect(() => {
     if (!firebaseInitialized.current) {
       initFirebase();
@@ -1539,6 +1539,7 @@ const prevPhaseRef = useRef(null);
 };
 
 export default BatteryChargerDashboard;
+
 
 
 
