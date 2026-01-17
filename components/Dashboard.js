@@ -33,6 +33,33 @@ function formatChartTime(timestamp) {
   return `${hours}:${minutes}:${seconds}`;
 }
 
+// State untuk tracking fase charging
+const [phaseStats, setPhaseStats] = useState({
+  cc: {
+    energyWh: 0,
+    duration: 0,
+    startTime: null,
+    endTime: null,
+    tempSum: 0,
+    tempCount: 0,
+    voltageReadings: [],
+    currentReadings: []
+  },
+  cv: {
+    energyWh: 0,
+    duration: 0,
+    startTime: null,
+    endTime: null,
+    tempSum: 0,
+    tempCount: 0,
+    voltageReadings: [],
+    currentReadings: []
+  }
+});
+
+const [currentPhase, setCurrentPhase] = useState(null); // 'cc', 'transisi', 'cv', null
+const prevPhaseRef = useRef(null);
+
 const BatteryChargerDashboard = () => {
   const [showConfig, setShowConfig] = useState(true);
   const [voltageChoice, setVoltageChoice] = useState('3.7');
@@ -66,7 +93,7 @@ const BatteryChargerDashboard = () => {
       firebaseInitialized.current = true;
     }
   }, []);
-
+  
   const initFirebase = async () => {
     try {
       console.log('🔥 Initializing Firebase...');
@@ -264,7 +291,76 @@ const BatteryChargerDashboard = () => {
       setPreviousState(prevState);
       setCurrentState(incomingState);
       setLatestCharger(chargerData);
+      // ✅ TRACKING FASE DAN KALKULASI ENERGY
+      const currState = incomingState.toUpperCase();
       
+      // Deteksi fase saat ini
+      let detectedPhase = null;
+      if (currState === 'CC' || currState === 'TRANSISI') {
+        detectedPhase = 'cc'; // CC + Transisi digabung
+      } else if (currState === 'CV') {
+        detectedPhase = 'cv';
+      }
+      
+      // Update current phase
+      setCurrentPhase(detectedPhase);
+      
+      // Jika fase berubah
+      if (detectedPhase !== prevPhaseRef.current && detectedPhase !== null) {
+        console.log(`🔄 Phase changed: ${prevPhaseRef.current} → ${detectedPhase}`);
+        
+        setPhaseStats(prev => {
+          const newStats = { ...prev };
+          
+          // Start new phase
+          if (!newStats[detectedPhase].startTime) {
+            newStats[detectedPhase].startTime = Date.now();
+            console.log(`▶️ ${detectedPhase.toUpperCase()} phase started`);
+          }
+          
+          // End previous phase
+          if (prevPhaseRef.current && prevPhaseRef.current !== detectedPhase) {
+            const prevPhase = prevPhaseRef.current;
+            if (!newStats[prevPhase].endTime) {
+              newStats[prevPhase].endTime = Date.now();
+              newStats[prevPhase].duration = 
+                (newStats[prevPhase].endTime - newStats[prevPhase].startTime) / 1000; // detik
+              console.log(`⏹️ ${prevPhase.toUpperCase()} phase ended: ${newStats[prevPhase].duration}s`);
+            }
+          }
+          
+          return newStats;
+        });
+      }
+      
+      prevPhaseRef.current = detectedPhase;
+      
+      // Akumulasi data jika sedang dalam fase
+      if (detectedPhase && loggingActiveRef.current) {
+        setPhaseStats(prev => {
+          const newStats = { ...prev };
+          const phase = newStats[detectedPhase];
+          
+          // Tambah voltage & current readings
+          phase.voltageReadings.push(chargerData.voltage);
+          phase.currentReadings.push(chargerData.current);
+          
+          // Hitung energy increment (Wh)
+          // Energy = V * I * time_interval (dalam hours)
+          // Asumsi data datang setiap 1 detik
+          const timeIntervalHours = 1 / 3600; // 1 detik = 1/3600 jam
+          const energyIncrement = chargerData.voltage * chargerData.current * timeIntervalHours;
+          phase.energyWh += energyIncrement;
+          
+          // Tambah temperature data
+          if (latestTemp?.celsius) {
+            phase.tempSum += latestTemp.celsius;
+            phase.tempCount += 1;
+          }
+          
+          return newStats;
+        });
+      }
       if (loggingActiveRef.current) {
         logChargerData(chargerData, push, set, ref, rtdb);
       }
@@ -377,15 +473,15 @@ const BatteryChargerDashboard = () => {
 
   const getMaxVref = () => {
     const targetV = parseFloat(voltageChoice);
-    return targetV - 0.1;
+    return 4.2;
   };
   
   const getMaxIref = () => {
     let cap = capacityChoice === 'custom' ? parseInt(customCapacity || '0') : parseInt(capacityChoice);
     if (isNaN(cap)) cap = 0;
     
-    const iref08C = (cap * 0.8) / 1000;
-    const maxAbsolute = 1.5;
+    const iref08C = cap / 1000;
+    const maxAbsolute = 2.2;
     
     return Math.min(iref08C, maxAbsolute);
   };
@@ -489,7 +585,31 @@ const BatteryChargerDashboard = () => {
       setLoggingStartTime(null);
       prevStateRef.current = 'idle';
       loggingActiveRef.current = false;
-      
+      // Reset phase stats
+      setPhaseStats({
+        cc: {
+          energyWh: 0,
+          duration: 0,
+          startTime: null,
+          endTime: null,
+          tempSum: 0,
+          tempCount: 0,
+          voltageReadings: [],
+          currentReadings: []
+        },
+        cv: {
+          energyWh: 0,
+          duration: 0,
+          startTime: null,
+          endTime: null,
+          tempSum: 0,
+          tempCount: 0,
+          voltageReadings: [],
+          currentReadings: []
+        }
+      });
+      setCurrentPhase(null);
+      prevPhaseRef.current = null;
       console.log('✅ State machine reset via manual reset');
       
       alert('✅ Charging berhasil direset!\n\nKembali ke halaman konfigurasi...');
@@ -550,8 +670,8 @@ const BatteryChargerDashboard = () => {
     if (!latestCharger?.voltage || !targetVoltage) return 0;
     
     const currentVoltage = latestCharger.voltage;
-    const minVoltage = 2.5;
-    const maxVoltage = targetVoltage;
+    const minVoltage = 2.75;
+    const maxVoltage = 4.2;
     
     const soc = ((currentVoltage - minVoltage) / (maxVoltage - minVoltage)) * 100;
     
@@ -801,7 +921,6 @@ const BatteryChargerDashboard = () => {
                 }`}
               >
                 <div className="text-xl sm:text-2xl font-bold mb-1">3.7V</div>
-                <div className="text-xs">LiFePO4 / Storage</div>
               </button>
               <button
                 onClick={() => setVoltageChoice('4.2')}
@@ -812,7 +931,6 @@ const BatteryChargerDashboard = () => {
                 }`}
               >
                 <div className="text-xl sm:text-2xl font-bold mb-1">4.2V</div>
-                <div className="text-xs">Li-ion / Full Charge</div>
               </button>
             </div>
           </div>
@@ -1187,7 +1305,109 @@ const BatteryChargerDashboard = () => {
                 )}
               </div>
             </div>
-            
+            {/* ✅ BATTERY HEALTH SECTION */}
+            <div className="mt-3 sm:mt-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-3 sm:p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Activity className="w-5 h-5 text-blue-600" />
+                <h3 className="text-sm sm:text-base font-semibold text-gray-800">Battery Health - Charging Analysis</h3>
+              </div>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                
+                {/* CC + Transisi Phase */}
+                <div className="bg-white rounded-lg p-3 border border-blue-100">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-xs font-bold text-blue-700">CC + Transisi Phase</h4>
+                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                      currentPhase === 'cc' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-500'
+                    }`}>
+                      {currentPhase === 'cc' ? 'Active' : 'Idle'}
+                    </span>
+                  </div>
+                  
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Energy:</span>
+                      <span className="font-semibold text-blue-600">
+                        {phaseStats.cc.energyWh.toFixed(3)} Wh
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Duration:</span>
+                      <span className="font-semibold text-gray-800">
+                        {phaseStats.cc.duration > 0 
+                          ? `${Math.floor(phaseStats.cc.duration / 60)}m ${Math.floor(phaseStats.cc.duration % 60)}s`
+                          : currentPhase === 'cc' && phaseStats.cc.startTime
+                            ? `${Math.floor((Date.now() - phaseStats.cc.startTime) / 60000)}m ${Math.floor(((Date.now() - phaseStats.cc.startTime) % 60000) / 1000)}s`
+                            : '0s'
+                        }
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Avg Temp:</span>
+                      <span className="font-semibold text-orange-600">
+                        {phaseStats.cc.tempCount > 0 
+                          ? `${(phaseStats.cc.tempSum / phaseStats.cc.tempCount).toFixed(1)}°C`
+                          : '--'
+                        }
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* CV Phase */}
+                <div className="bg-white rounded-lg p-3 border border-green-100">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-xs font-bold text-green-700">CV Phase</h4>
+                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                      currentPhase === 'cv' ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-500'
+                    }`}>
+                      {currentPhase === 'cv' ? 'Active' : 'Idle'}
+                    </span>
+                  </div>
+                  
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Energy:</span>
+                      <span className="font-semibold text-green-600">
+                        {phaseStats.cv.energyWh.toFixed(3)} Wh
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Duration:</span>
+                      <span className="font-semibold text-gray-800">
+                        {phaseStats.cv.duration > 0 
+                          ? `${Math.floor(phaseStats.cv.duration / 60)}m ${Math.floor(phaseStats.cv.duration % 60)}s`
+                          : currentPhase === 'cv' && phaseStats.cv.startTime
+                            ? `${Math.floor((Date.now() - phaseStats.cv.startTime) / 60000)}m ${Math.floor(((Date.now() - phaseStats.cv.startTime) % 60000) / 1000)}s`
+                            : '0s'
+                        }
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Avg Temp:</span>
+                      <span className="font-semibold text-orange-600">
+                        {phaseStats.cv.tempCount > 0 
+                          ? `${(phaseStats.cv.tempSum / phaseStats.cv.tempCount).toFixed(1)}°C`
+                          : '--'
+                        }
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                
+              </div>
+              
+              {/* Total Summary */}
+              <div className="mt-3 pt-3 border-t border-blue-200">
+                <div className="flex justify-between items-center text-xs sm:text-sm">
+                  <span className="font-semibold text-gray-700">Total Energy:</span>
+                  <span className="text-lg font-bold text-indigo-600">
+                    {(phaseStats.cc.energyWh + phaseStats.cv.energyWh).toFixed(3)} Wh
+                  </span>
+                </div>
+              </div>
+            </div>
             <div className="mt-2 sm:mt-3 flex justify-between text-xs text-gray-600">
               <span>Current: {latestCharger?.voltage?.toFixed(2) || '--'}V</span>
               <span>Target: {targetVoltage}V</span>
@@ -1335,3 +1555,4 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
