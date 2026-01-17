@@ -32,34 +32,6 @@ function formatChartTime(timestamp) {
   const seconds = String(date.getSeconds()).padStart(2, '0');
   return `${hours}:${minutes}:${seconds}`;
 }
-
-// State untuk tracking fase charging
-const [phaseStats, setPhaseStats] = useState({
-  cc: {
-    energyWh: 0,
-    duration: 0,
-    startTime: null,
-    endTime: null,
-    tempSum: 0,
-    tempCount: 0,
-    voltageReadings: [],
-    currentReadings: []
-  },
-  cv: {
-    energyWh: 0,
-    duration: 0,
-    startTime: null,
-    endTime: null,
-    tempSum: 0,
-    tempCount: 0,
-    voltageReadings: [],
-    currentReadings: []
-  }
-});
-
-const [currentPhase, setCurrentPhase] = useState(null); // 'cc', 'transisi', 'cv', null
-const prevPhaseRef = useRef(null);
-
 const BatteryChargerDashboard = () => {
   const [showConfig, setShowConfig] = useState(true);
   const [voltageChoice, setVoltageChoice] = useState('3.7');
@@ -86,7 +58,31 @@ const BatteryChargerDashboard = () => {
   const [resetLoading, setResetLoading] = useState(false);
   const [stats, setStats] = useState({ total: 0 });
   const firebaseInitialized = useRef(false);
-
+  // State untuk tracking fase charging
+  const [phaseStats, setPhaseStats] = useState({
+    cc: {
+      energyWh: 0,
+      duration: 0,
+      startTime: null,
+      endTime: null,
+      tempSum: 0,
+      tempCount: 0,
+      voltageReadings: [],
+      currentReadings: []
+    },
+    cv: {
+      energyWh: 0,
+      duration: 0,
+      startTime: null,
+      endTime: null,
+      tempSum: 0,
+      tempCount: 0,
+      voltageReadings: [],
+      currentReadings: []
+    }
+  });
+const [currentPhase, setCurrentPhase] = useState(null); // 'cc', 'transisi', 'cv', null
+const prevPhaseRef = useRef(null);
   useEffect(() => {
     if (!firebaseInitialized.current) {
       initFirebase();
@@ -1555,4 +1551,5 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
