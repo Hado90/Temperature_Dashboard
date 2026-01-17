@@ -686,136 +686,6 @@ const BatteryChargerDashboard = () => {
   };
 
   const socPercentage = calculateSOC();
-
-    try {
-      const svgElement = chartElement.querySelector('svg');
-      if (!svgElement) {
-        alert('❌ Chart belum ter-render. Coba lagi.');
-        return;
-      }
-
-      const clonedSvg = svgElement.cloneNode(true);
-      
-      const width = svgElement.width.baseVal.value || 800;
-      const height = svgElement.height.baseVal.value || 400;
-      
-      clonedSvg.setAttribute('width', width);
-      clonedSvg.setAttribute('height', height);
-      clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-    
-      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-      rect.setAttribute('width', '100%');
-      rect.setAttribute('height', '100%');
-      rect.setAttribute('fill', '#ffffff');
-      clonedSvg.insertBefore(rect, clonedSvg.firstChild);
-  
-      const svgData = new XMLSerializer().serializeToString(clonedSvg);
-      const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
-      const svgUrl = URL.createObjectURL(svgBlob);
-  
-      const canvas = document.createElement('canvas');
-      canvas.width = width * 2;
-      canvas.height = height * 2;
-      const ctx = canvas.getContext('2d');
-      
-      ctx.scale(2, 2);
-
-      const img = new Image();
-      img.onload = () => {
-        ctx.drawImage(img, 0, 0, width, height);
-        URL.revokeObjectURL(svgUrl);
-        
-        const pngUrl = canvas.toDataURL('image/png');
-        
-        const newWindow = window.open();
-        if (newWindow) {
-          newWindow.document.write(`
-            <!DOCTYPE html>
-            <html>
-            <head>
-              <title>${filename}</title>
-              <style>
-                body {
-                  margin: 0;
-                  display: flex;
-                  justify-content: center;
-                  align-items: center;
-                  min-height: 100vh;
-                  background: #f3f4f6;
-                  font-family: system-ui, -apple-system, sans-serif;
-                }
-                .container {
-                  text-align: center;
-                  padding: 2rem;
-                }
-                img {
-                  max-width: 100%;
-                  height: auto;
-                  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-                  border-radius: 8px;
-                  background: white;
-                }
-                .instructions {
-                  margin-top: 1rem;
-                  color: #6b7280;
-                  font-size: 0.875rem;
-                }
-                .download-btn {
-                  margin-top: 1rem;
-                  padding: 0.5rem 1rem;
-                  background: #3b82f6;
-                  color: white;
-                  border: none;
-                  border-radius: 0.5rem;
-                  cursor: pointer;
-                  font-size: 0.875rem;
-                  font-weight: 600;
-                }
-                .download-btn:hover {
-                  background: #2563eb;
-                }
-              </style>
-            </head>
-            <body>
-              <div class="container">
-                <img src="${pngUrl}" alt="${filename}" />
-                <p class="instructions">
-                  💡 <strong>Klik kanan pada gambar</strong> → <strong>Save Image As...</strong> untuk download
-                </p>
-                <button class="download-btn" onclick="downloadImage()">
-                  📥 Download Langsung
-                </button>
-              </div>
-              <script>
-                function downloadImage() {
-                  const link = document.createElement('a');
-                  link.download = '${filename}_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.png';
-                  link.href = '${pngUrl}';
-                  link.click();
-                }
-              </script>
-            </body>
-            </html>
-          `);
-          newWindow.document.close();
-        } else {
-          alert('⚠️ Pop-up diblokir. Izinkan pop-up untuk membuka gambar di tab baru.');
-        }
-      };
-    
-      img.onerror = () => {
-        URL.revokeObjectURL(svgUrl);
-        alert('❌ Gagal memuat chart. Coba lagi.');
-      };
-      
-      img.src = svgUrl;
-      
-    } catch (error) {
-      console.error('Error opening chart:', error);
-      alert('❌ Gagal membuka chart. Coba lagi.');
-    }
-  };
-
   const downloadChargerCSV = () => {
     if (chargerHistory.length === 0) {
       alert('⚠️ Tidak ada data untuk didownload');
@@ -1539,6 +1409,7 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
 
 
