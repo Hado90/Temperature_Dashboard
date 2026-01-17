@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Battery, RefreshCw, Zap, Thermometer, Activity, AlertCircle, TrendingUp, CheckCircle, Settings, ArrowRight, Download, Camera } from 'lucide-react';
+import { Battery, RefreshCw, Zap, Thermometer, Activity, AlertCircle, TrendingUp, CheckCircle, Settings, ArrowRight, Download } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 function parseTimestamp(raw) {
@@ -395,8 +395,8 @@ const prevPhaseRef = useRef(null);
         voltage: chargerData.voltage,
         current: chargerData.current,
         state: chargerData.state,
-        timestamp: chargerData.timestamp,
-        formattedTime: formatTime(chargerData.timestamp)
+        timestamp: webTimestamp, // ✅ Pakai timestamp web
+        formattedTime: formatTime(webTimestamp) // ✅ Format dari web
       };
       
       await set(newRef, dataToLog);
@@ -414,8 +414,8 @@ const prevPhaseRef = useRef(null);
       const dataToLog = {
         celsius: tempData.celsius,
         fahrenheit: tempData.fahrenheit,
-        timestamp: tempData.timestamp,
-        formattedTime: formatTime(tempData.timestamp)
+        timestamp: webTimestamp, // ✅ Pakai timestamp web
+        formattedTime: formatTime(webTimestamp) // ✅ Format dari web
       };
       
       await set(newRef, dataToLog);
@@ -473,13 +473,24 @@ const prevPhaseRef = useRef(null);
   };
   
   const getMaxIref = () => {
-    let cap = capacityChoice === 'custom' ? parseInt(customCapacity || '0') : parseInt(capacityChoice);
+    let cap;
+    
+    if (capacityChoice === 'custom') {
+      // Jika custom dipilih tapi belum diisi, return max absolute
+      if (!customCapacity || customCapacity.trim() === '') {
+        return 2.2; // Return 2.2A (max absolute)
+      }
+      cap = parseInt(customCapacity);
+    } else {
+      cap = parseInt(capacityChoice);
+    }
+    
     if (isNaN(cap)) cap = 0;
     
-    const iref08C = cap / 1000;
+    const irefMax = cap / 1000; // Kapasitas dalam Ampere (1200mAh → 1.2A)
     const maxAbsolute = 2.2;
     
-    return Math.min(iref08C, maxAbsolute);
+    return Math.min(irefMax, maxAbsolute);
   };
   
   const validateManualInputs = () => {
@@ -675,13 +686,6 @@ const prevPhaseRef = useRef(null);
   };
 
   const socPercentage = calculateSOC();
-
-  const openChartInNewTab = (chartId, filename) => {
-    const chartElement = document.getElementById(chartId);
-    if (!chartElement) {
-      alert('❌ Chart tidak ditemukan');
-      return;
-    }
 
     try {
       const svgElement = chartElement.querySelector('svg');
@@ -1301,6 +1305,10 @@ const prevPhaseRef = useRef(null);
                 )}
               </div>
             </div>
+            <div className="mt-2 sm:mt-3 flex justify-between text-xs text-gray-600">
+              <span>Current: {latestCharger?.voltage?.toFixed(2) || '--'}V</span>
+              <span>Target: {targetVoltage}V</span>
+            </div>
             {/* ✅ BATTERY HEALTH SECTION */}
             <div className="mt-3 sm:mt-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-3 sm:p-4">
               <div className="flex items-center gap-2 mb-3">
@@ -1404,10 +1412,6 @@ const prevPhaseRef = useRef(null);
                 </div>
               </div>
             </div>
-            <div className="mt-2 sm:mt-3 flex justify-between text-xs text-gray-600">
-              <span>Current: {latestCharger?.voltage?.toFixed(2) || '--'}V</span>
-              <span>Target: {targetVoltage}V</span>
-            </div>
           </div>
         </div>
 
@@ -1421,14 +1425,6 @@ const prevPhaseRef = useRef(null);
             </div>
             
             <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
-              <button
-                onClick={() => openChartInNewTab('charger-chart', 'voltage_current_chart')}
-                className="px-2 sm:px-3 lg:px-4 py-1.5 sm:py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center gap-1 sm:gap-2 transition-all text-xs sm:text-sm font-semibold"
-              >
-                <Camera className="w-3 h-3 sm:w-4 sm:h-4" />
-                <span className="hidden sm:inline">Open Image</span>
-                <span className="sm:hidden">📷</span>
-              </button>
               <button
                 onClick={downloadChargerCSV}
                 className="px-2 sm:px-3 lg:px-4 py-1.5 sm:py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center gap-1 sm:gap-2 transition-all text-xs sm:text-sm font-semibold"
@@ -1487,14 +1483,6 @@ const prevPhaseRef = useRef(null);
             </div>
             <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
               <button
-                onClick={() => openChartInNewTab('temperature-chart', 'temperature_chart')}
-                className="px-2 sm:px-3 lg:px-4 py-1.5 sm:py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center gap-1 sm:gap-2 transition-all text-xs sm:text-sm font-semibold"
-              >
-                <Camera className="w-3 h-3 sm:w-4 sm:h-4" />
-                <span className="hidden sm:inline">Open Image</span>
-                <span className="sm:hidden">📷</span>
-              </button>
-              <button
                 onClick={downloadTemperatureCSV}
                 className="px-2 sm:px-3 lg:px-4 py-1.5 sm:py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center gap-1 sm:gap-2 transition-all text-xs sm:text-sm font-semibold"
               >
@@ -1551,5 +1539,6 @@ const prevPhaseRef = useRef(null);
 };
 
 export default BatteryChargerDashboard;
+
 
 
