@@ -1372,8 +1372,9 @@ const BatteryChargerDashboard = () => {
                   </div>
                 </div>
               </div>
-             </div>
             </div>
+          </div>
+        </div>
         <div className="bg-white rounded-xl sm:rounded-2xl shadow-xl p-3 sm:p-4 lg:p-6 mb-3 sm:mb-4 lg:mb-6 overflow-hidden" id="charger-chart">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3 mb-3 sm:mb-4 lg:mb-6">
             <div className="flex items-center gap-1 sm:gap-2">
@@ -1498,6 +1499,7 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
 
 
