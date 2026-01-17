@@ -390,7 +390,7 @@ const BatteryChargerDashboard = () => {
     try {
       const historyRef = ref(rtdb, 'chargerData/history');
       const newRef = push(historyRef);
-      
+      const webTimestamp = Date.now(); // ✅ Timestamp web saat logging
       const dataToLog = {
         voltage: chargerData.voltage,
         current: chargerData.current,
@@ -410,7 +410,7 @@ const BatteryChargerDashboard = () => {
     try {
       const historyRef = ref(rtdb, 'sensorData/history');
       const newRef = push(historyRef);
-      
+      const webTimestamp = Date.now(); // ✅ Timestamp web saat logging
       const dataToLog = {
         celsius: tempData.celsius,
         fahrenheit: tempData.fahrenheit,
@@ -1409,6 +1409,7 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
 
 
