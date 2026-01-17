@@ -253,7 +253,23 @@ const BatteryChargerDashboard = () => {
       
       const prevUpper = prevState.toUpperCase();
       const currUpper = incomingState.toUpperCase();
+      console.log(`🔄 State Change: ${prevState} → ${incomingState} | Logging: ${loggingActiveRef.current}`);
+      if (currUpper === 'IDLE' && loggingActiveRef.current) {
+        console.log('🔴 STOP LOGGING: Returned to IDLE');
+        loggingActiveRef.current = false;
+        setIsLoggingActive(false);
+      }
       
+      if (
+        prevUpper === 'DETECT' &&
+        currUpper !== 'DETECT' &&
+        !loggingActiveRef.current
+      ) {
+        console.log('🟢 LOGGING START (DETECT EXIT):', prevState, '→', incomingState);
+        loggingActiveRef.current = true;
+        setIsLoggingActive(true);
+        setLoggingStartTime(Date.now());
+      }
       if (currUpper === 'IDLE' && loggingActiveRef.current) {
         console.log('🔴 STOP LOGGING: Returned to IDLE');
         loggingActiveRef.current = false;
@@ -310,18 +326,28 @@ const BatteryChargerDashboard = () => {
           
           // Start new phase
           if (!newStats[detectedPhase].startTime) {
-            newStats[detectedPhase].startTime = Date.now();
-            console.log(`▶️ ${detectedPhase.toUpperCase()} phase started`);
+            const startTime = Date.now();
+            newStats[detectedPhase].startTime = startTime;
+            newStats[detectedPhase].lastUpdateTime = startTime; // ✅ Set lastUpdateTime saat start
+            console.log(`▶️ ${detectedPhase.toUpperCase()} phase started at ${formatTime(startTime)}`);
           }
           
           // End previous phase
           if (prevPhaseRef.current && prevPhaseRef.current !== detectedPhase) {
-            const prevPhase = prevPhaseRef.current;
-            if (!newStats[prevPhase].endTime) {
-              newStats[prevPhase].endTime = Date.now();
-              newStats[prevPhase].duration = 
-                (newStats[prevPhase].endTime - newStats[prevPhase].startTime) / 1000; // detik
-              console.log(`⏹️ ${prevPhase.toUpperCase()} phase ended: ${newStats[prevPhase].duration}s`);
+           const prevPhase = prevPhaseRef.current;
+          // Hanya set endTime dan duration jika belum pernah di-set
+          if (newStats[prevPhase].startTime && !newStats[prevPhase].endTime) {
+            const endTime = Date.now();
+            newStats[prevPhase].endTime = endTime;
+            
+            // ✅ SIMPAN DURASI FINAL (dalam detik)
+            const finalDurationSeconds = (endTime - newStats[prevPhase].startTime) / 1000;
+            newStats[prevPhase].duration = finalDurationSeconds; // ✅ DURASI TERSIMPAN DI SINI
+            
+            console.log(`⏹️ ${prevPhase.toUpperCase()} phase ended at ${formatTime(endTime)}`);
+            console.log(`⏱️ Final duration: ${finalDurationSeconds.toFixed(1)}s (${(finalDurationSeconds/60).toFixed(2)} minutes)`);
+            console.log(`⚡ Final energy: ${newStats[prevPhase].energyWh.toFixed(4)} Wh`);
+            console.log(`🌡️ Avg temp: ${newStats[prevPhase].tempCount > 0 ? (newStats[prevPhase].tempSum / newStats[prevPhase].tempCount).toFixed(1) : '--'}°C`);
             }
           }
           
@@ -336,15 +362,25 @@ const BatteryChargerDashboard = () => {
         setPhaseStats(prev => {
           const newStats = { ...prev };
           const phase = newStats[detectedPhase];
-          
+          const currentTime = Date.now();
+          let timeIntervalHours;
+          if (phase.lastUpdateTime) {
+            // Hitung interval waktu aktual (dalam jam)
+            const intervalMs = currentTime - phase.lastUpdateTime;
+            timeIntervalHours = intervalMs / (1000 * 3600); // ms ke jam
+            console.log(`⏱️ Actual interval: ${intervalMs}ms (${(intervalMs/1000).toFixed(2)}s)`);
+          } else {
+            // Jika ini data pertama, gunakan asumsi 1 detik
+            timeIntervalHours = 1 / 3600;
+            console.log(`⏱️ First data point, using default 1s interval`);
+          }
+          phase.lastUpdateTime = currentTime;
           // Tambah voltage & current readings
           phase.voltageReadings.push(chargerData.voltage);
           phase.currentReadings.push(chargerData.current);
-          
           // Hitung energy increment (Wh)
           // Energy = V * I * time_interval (dalam hours)
           // Asumsi data datang setiap 1 detik
-          const timeIntervalHours = 1 / 3600; // 1 detik = 1/3600 jam
           const energyIncrement = chargerData.voltage * chargerData.current * timeIntervalHours;
           phase.energyWh += energyIncrement;
           
@@ -352,6 +388,7 @@ const BatteryChargerDashboard = () => {
           if (latestTemp?.celsius) {
             phase.tempSum += latestTemp.celsius;
             phase.tempCount += 1;
+            console.log(`🌡️ Temp added to ${detectedPhase}: ${latestTemp.celsius}°C (Count: ${phase.tempCount}, Avg: ${(phase.tempSum/phase.tempCount).toFixed(1)}°C)`);
           }
           
           return newStats;
@@ -599,6 +636,7 @@ const BatteryChargerDashboard = () => {
           duration: 0,
           startTime: null,
           endTime: null,
+          lastUpdateTime: null, // ✅ TAMBAHKAN
           tempSum: 0,
           tempCount: 0,
           voltageReadings: [],
@@ -609,6 +647,7 @@ const BatteryChargerDashboard = () => {
           duration: 0,
           startTime: null,
           endTime: null,
+          lastUpdateTime: null, // ✅ TAMBAHKAN
           tempSum: 0,
           tempCount: 0,
           voltageReadings: [],
@@ -1274,16 +1313,66 @@ const BatteryChargerDashboard = () => {
               
               {/* Total Summary */}
               <div className="mt-3 pt-3 border-t border-blue-200">
-                <div className="flex justify-between items-center text-xs sm:text-sm">
-                  <span className="font-semibold text-gray-700">Total Energy:</span>
-                  <span className="text-lg font-bold text-indigo-600">
-                    {(phaseStats.cc.energyWh + phaseStats.cv.energyWh).toFixed(3)} Wh
-                  </span>
+                <div className="space-y-2">
+                  
+                  {/* Total Energy */}
+                  <div className="flex justify-between items-center text-xs sm:text-sm">
+                    <span className="font-semibold text-gray-700">Total Energy:</span>
+                    <span className="text-lg font-bold text-indigo-600">
+                      {(phaseStats.cc.energyWh + phaseStats.cv.energyWh).toFixed(3)} Wh
+                    </span>
+                  </div>
+                  
+                  {/* ✅ TAMBAHAN: Total Duration */}
+                  <div className="flex justify-between items-center text-xs sm:text-sm">
+                    <span className="font-semibold text-gray-700">Total Duration:</span>
+                    <span className="text-lg font-bold text-purple-600">
+                      {(() => {
+                        // Durasi yang sudah selesai (tersimpan)
+                        const ccDuration = phaseStats.cc.duration || 0;
+                        const cvDuration = phaseStats.cv.duration || 0;
+                        let totalSeconds = ccDuration + cvDuration;
+                        
+                        // ✅ Tambahkan durasi fase yang sedang aktif (realtime)
+                        if (currentPhase && phaseStats[currentPhase].startTime && !phaseStats[currentPhase].endTime) {
+                          const activeSeconds = (Date.now() - phaseStats[currentPhase].startTime) / 1000;
+                          totalSeconds += activeSeconds;
+                        }
+                        
+                        const hours = Math.floor(totalSeconds / 3600);
+                        const minutes = Math.floor((totalSeconds % 3600) / 60);
+                        const seconds = Math.floor(totalSeconds % 60);
+                        
+                        if (hours > 0) {
+                          return `${hours}h ${minutes}m ${seconds}s`;
+                        } else if (minutes > 0) {
+                          return `${minutes}m ${seconds}s`;
+                        } else {
+                          return `${seconds}s`;
+                        }
+                      })()}
+                    </span>
+                  </div>
+              
+                  {/* ✅ TAMBAHAN: Average Temperature for entire cycle */}
+                  <div className="flex justify-between items-center text-xs sm:text-sm">
+                    <span className="font-semibold text-gray-700">Overall Avg Temp:</span>
+                    <span className="text-lg font-bold text-orange-600">
+                      {(() => {
+                        const totalTempCount = phaseStats.cc.tempCount + phaseStats.cv.tempCount;
+                        const totalTempSum = phaseStats.cc.tempSum + phaseStats.cv.tempSum;
+                        
+                        if (totalTempCount > 0) {
+                          return `${(totalTempSum / totalTempCount).toFixed(1)}°C`;
+                        } else {
+                          return '--';
+                        }
+                      })()}
+                    </span>
+                  </div>
+                  
                 </div>
               </div>
-            </div>
-          </div>
-        </div>
 
         <div className="bg-white rounded-xl sm:rounded-2xl shadow-xl p-3 sm:p-4 lg:p-6 mb-3 sm:mb-4 lg:mb-6 overflow-hidden" id="charger-chart">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3 mb-3 sm:mb-4 lg:mb-6">
@@ -1409,6 +1498,7 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
 
 
