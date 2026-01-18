@@ -272,6 +272,12 @@ const BatteryChargerDashboard = () => {
         setIsLoggingActive(true);
         setLoggingStartTime(Date.now());
       }
+      if (currUpper === 'DONE' && loggingActiveRef.current) {
+        console.log('🔴 STOP LOGGING: Charging completed (DONE state)');
+        loggingActiveRef.current = false;
+        setIsLoggingActive(false);
+      }
+      
       if (currUpper === 'IDLE' && loggingActiveRef.current) {
         console.log('🔴 STOP LOGGING: Returned to IDLE');
         loggingActiveRef.current = false;
@@ -1603,6 +1609,7 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
 
 
