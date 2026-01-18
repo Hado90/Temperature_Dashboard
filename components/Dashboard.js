@@ -131,20 +131,22 @@ const BatteryChargerDashboard = () => {
       const status = snapshot.val();
       console.log('📋 Config status:', status);
       
-      if (status === 'charging' || status === 'configured' || status === 'running') {
+      // ✅ PERBAIKAN: Jangan kembali ke config saat paused
+      if (status === 'charging' || status === 'configured' || status === 'running' || status === 'paused') {
         setShowConfig(false);
       } else {
         setShowConfig(true);
       }
     });
-    onValue(ref(rtdb, 'config/targetVoltage'), (snapshot) => {
-      const voltage = snapshot.val();
-      if (voltage) {
-        setTargetVoltage(parseFloat(voltage));
-        console.log('🔋 Target Voltage loaded:', voltage);
+    
+    // ✅ TAMBAH: Listener untuk isPaused
+    onValue(ref(rtdb, 'config/isPaused'), (snapshot) => {
+      const paused = snapshot.val();
+      if (paused !== null) {
+        setIsPaused(paused);
+        console.log('⏸️ Pause state from Firebase:', paused);
       }
     });
-  };
 
   const handleSendConfiguration = async () => {
     if (!window.firebaseInstances) {
@@ -655,21 +657,23 @@ const BatteryChargerDashboard = () => {
     try {
       const newPauseState = !isPaused;
       
-      // Update status di Firebase RTDB
-      await set(ref(rtdb, 'config/status'), newPauseState ? 'paused' : 'charging');
+      // ✅ Update field BARU 'isPaused' di config (BUKAN status)
+      await set(ref(rtdb, 'config/isPaused'), newPauseState);
       
       setIsPaused(newPauseState);
       
       console.log(newPauseState ? '⏸️ System PAUSED' : '▶️ System RESUMED');
+      console.log('Firebase: config/isPaused =', newPauseState);
       
-      alert(newPauseState 
-        ? '⏸️ Sistem PAUSED\n\n• Dashboard tidak update\n• Logging dihentikan\n• ESP32 akan menerima status PAUSED'
-        : '▶️ Sistem RESUMED\n\nCharging dilanjutkan...'
-      );
+      if (newPauseState) {
+        alert('⏸️ Sistem PAUSED\n\n• Dashboard tidak update\n• Logging dihentikan sementara\n• ESP32 menerima isPaused = true\n• Status charging tetap aktif');
+      } else {
+        alert('▶️ Sistem RESUMED\n\n• Dashboard kembali update\n• Logging dilanjutkan\n• ESP32 menerima isPaused = false');
+      }
       
     } catch (error) {
       console.error('❌ Error toggling pause:', error);
-      alert('❌ Gagal mengubah status: ' + error.message);
+      alert('❌ Gagal mengubah status pause: ' + error.message);
     }
   };
   const handleDoneButton = async () => {
@@ -703,21 +707,25 @@ const BatteryChargerDashboard = () => {
       await remove(ref(rtdb, 'chargerData/history'));
       console.log('✅ Charger history cleared');
       
-      // ✅ 3. Set config status ke 'idle' (bukan 'done')
+      // ✅ 3. Set config status ke 'idle'
       await set(ref(rtdb, 'config/status'), 'idle');
       console.log('✅ Config status reset to IDLE');
       
-      // ✅ 4. Reset local state
+      // ✅ 4. Reset isPaused ke false
+      await set(ref(rtdb, 'config/isPaused'), false);
+      console.log('✅ isPaused reset to false');
+      
+      // ✅ 5. Reset local state
       setLatestCharger({ voltage: 0, current: 0, state: 'IDLE', timestamp: Date.now() });
       setCurrentState('idle');
       setPreviousState('idle');
       setIsLoggingActive(false);
       setLoggingStartTime(null);
-      setIsPaused(false); // ✅ Reset pause state
+      setIsPaused(false);
       prevStateRef.current = 'idle';
       loggingActiveRef.current = false;
       
-      // ✅ 5. Reset phase stats
+      // ✅ 6. Reset phase stats
       setPhaseStats({
         cc: {
           energyWh: 0,
@@ -747,7 +755,7 @@ const BatteryChargerDashboard = () => {
       
       console.log('✅ State machine reset');
       
-      alert('✅ Data berhasil dihapus.\n• Voltage: 0V\n• Current: 0A\n• State: IDLE\n\nKembali ke halaman konfigurasi...');
+      alert('✅ Data berhasil dihapus.\n• Voltage: 0V\n• Current: 0A\n• State: IDLE\n• isPaused: false\n\nKembali ke halaman konfigurasi...');
       
       setTimeout(() => {
         setShowConfig(true);
@@ -762,7 +770,7 @@ const BatteryChargerDashboard = () => {
   };
 
   const handleResetCharging = async () => {
-    if (!confirm('⚠️ RESET CHARGING\n\nIni akan:\n• Menghapus semua data history\n• Menghentikan proses charging\n• Reset voltage & current ke 0\n• Reset status ke IDLE\n• Kembali ke halaman konfigurasi\n\nLanjutkan?')) {
+    if (!confirm('⚠️ RESET CHARGING\n\nIni akan:\n• Menghapus semua data history\n• Menghentikan proses charging\n• Reset voltage & current ke 0\n• Reset status ke IDLE\n• Reset pause state\n• Kembali ke halaman konfigurasi\n\nLanjutkan?')) {
       return;
     }
   
@@ -791,17 +799,21 @@ const BatteryChargerDashboard = () => {
       await set(ref(rtdb, 'config/status'), 'idle');
       console.log('✅ Config status reset to IDLE');
       
-      // ✅ 4. Reset local state
+      // ✅ 4. Reset isPaused ke false
+      await set(ref(rtdb, 'config/isPaused'), false);
+      console.log('✅ isPaused reset to false');
+      
+      // ✅ 5. Reset local state
       setLatestCharger({ voltage: 0, current: 0, state: 'IDLE', timestamp: Date.now() });
       setCurrentState('idle');
       setPreviousState('idle');
       setIsLoggingActive(false);
       setLoggingStartTime(null);
-      setIsPaused(false); // ✅ Reset pause state
+      setIsPaused(false);
       prevStateRef.current = 'idle';
       loggingActiveRef.current = false;
       
-      // ✅ 5. Reset phase stats
+      // ✅ 6. Reset phase stats
       setPhaseStats({
         cc: {
           energyWh: 0,
@@ -831,7 +843,7 @@ const BatteryChargerDashboard = () => {
       
       console.log('✅ State machine reset via manual reset');
       
-      alert('✅ Charging berhasil direset!\n• Voltage: 0V\n• Current: 0A\n• State: IDLE\n\nKembali ke halaman konfigurasi...');
+      alert('✅ Charging berhasil direset!\n• Voltage: 0V\n• Current: 0A\n• State: IDLE\n• isPaused: false\n\nKembali ke halaman konfigurasi...');
       
       setTimeout(() => {
         setShowConfig(true);
@@ -1215,16 +1227,19 @@ const BatteryChargerDashboard = () => {
             </div>
             <div className="flex items-center gap-2 sm:gap-4 w-full sm:w-auto">
               <div className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl flex items-center gap-1 sm:gap-2 text-xs sm:text-sm flex-1 sm:flex-none ${
+                isPaused ? 'bg-red-100 text-red-700' :
                 isLoggingActive ? 'bg-green-100 text-green-700' : 
                 currentState.toUpperCase() === 'DETECT' ? 'bg-yellow-100 text-yellow-700' :
                 'bg-gray-100 text-gray-500'
               }`}>
                 <div className={`w-2 h-2 sm:w-3 sm:h-3 rounded-full ${
+                  isPaused ? 'bg-red-500' :
                   isLoggingActive ? 'bg-green-500 animate-pulse' : 
                   currentState.toUpperCase() === 'DETECT' ? 'bg-yellow-500 animate-pulse' :
                   'bg-gray-400'
                 }`} />
                 <span className="font-medium truncate">
+                  {isPaused ? '⏸️ PAUSED' :
                   {isLoggingActive ? `Log: ${currentState}` : 
                    currentState.toUpperCase() === 'DETECT' ? 'Waiting...' :
                    `Standby`}
@@ -1722,6 +1737,7 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
 
 
