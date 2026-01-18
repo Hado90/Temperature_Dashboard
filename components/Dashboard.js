@@ -302,17 +302,19 @@ const BatteryChargerDashboard = () => {
         setLoggingStartTime(Date.now());
       }
       // Deteksi fase saat ini
+      const currState = incomingState.toUpperCase();
       let detectedPhase = null;
+      
+      // Gabungkan CC dan TRANSISI dalam satu fase
       if (currState === 'CC' || currState === 'TRANSISI') {
         detectedPhase = 'cc';
-        console.log(`✅ Detected phase: CC (actual state: ${currState})`); // ✅ TAMBAHAN
+        console.log(`✅ Detected CC phase (actual state: ${currState})`);
       } else if (currState === 'CV') {
         detectedPhase = 'cv';
-        console.log(`✅ Detected phase: CV`); // ✅ TAMBAHAN
+        console.log(`✅ Detected CV phase`);
       } else {
-        console.log(`⚠️ No phase detected for state: ${currState}`); // ✅ TAMBAHAN
+        console.log(`⚠️ No phase detected for state: ${currState}`);
       }
-      
       // Update current phase
       setCurrentPhase(detectedPhase);
       console.log(`🔍 Current Phase: ${detectedPhase} | Prev Phase: ${prevPhaseRef.current} | Logging: ${loggingActiveRef.current}`); // ✅ TAMBAHAN
@@ -320,6 +322,7 @@ const BatteryChargerDashboard = () => {
       setPreviousState(prevState);
       setCurrentState(incomingState);
       setLatestCharger(chargerData);
+      
       // ✅ TRACKING FASE DAN KALKULASI ENERGY
       const currState = incomingState.toUpperCase();
       
@@ -334,36 +337,40 @@ const BatteryChargerDashboard = () => {
       
       // Jika fase berubah
       if (detectedPhase !== prevPhaseRef.current && detectedPhase !== null) {
-        console.log(`🔄 Phase changed: ${prevPhaseRef.current} → ${detectedPhase}`);
+        console.log(`🔄 Phase transition detected: ${prevPhaseRef.current} → ${detectedPhase}`);
         
         setPhaseStats(prev => {
-          const newStats = { ...prev };
+          const newStats = JSON.parse(JSON.stringify(prev)); // Deep copy untuk menghindari mutation
           
-          // Start new phase
+          // 1. END PREVIOUS PHASE - SIMPAN DURASI DAN DATA FINAL
+          if (prevPhaseRef.current && prevPhaseRef.current !== detectedPhase) {
+            const prevPhase = prevPhaseRef.current;
+            
+            // Hanya set endTime jika belum pernah diset
+            if (newStats[prevPhase].startTime && !newStats[prevPhase].endTime) {
+              const endTime = Date.now();
+              newStats[prevPhase].endTime = endTime;
+              
+              // ✅ SIMPAN DURASI FINAL (dalam detik)
+              const finalDurationSeconds = (endTime - newStats[prevPhase].startTime) / 1000;
+              newStats[prevPhase].duration = finalDurationSeconds;
+              
+              console.log(`⏹️ ${prevPhase.toUpperCase()} phase ENDED at ${formatTime(endTime)}`);
+              console.log(`⏱️ Final duration: ${finalDurationSeconds.toFixed(1)}s`);
+              console.log(`⚡ Final energy: ${newStats[prevPhase].energyWh.toFixed(4)} Wh`);
+              console.log(`🌡️ Avg temp: ${newStats[prevPhase].tempCount > 0 ? (newStats[prevPhase].tempSum / newStats[prevPhase].tempCount).toFixed(1) : '--'}°C`);
+              
+              // ✅ FREEZE DATA - Tidak boleh berubah lagi
+              Object.freeze(newStats[prevPhase]);
+            }
+          }
+          
+          // 2. START NEW PHASE
           if (!newStats[detectedPhase].startTime) {
             const startTime = Date.now();
             newStats[detectedPhase].startTime = startTime;
-            newStats[detectedPhase].lastUpdateTime = startTime; // ✅ Set lastUpdateTime saat start
-            console.log(`▶️ ${detectedPhase.toUpperCase()} phase started at ${formatTime(startTime)}`);
-          }
-          
-          // End previous phase
-          if (prevPhaseRef.current && prevPhaseRef.current !== detectedPhase) {
-           const prevPhase = prevPhaseRef.current;
-          // Hanya set endTime dan duration jika belum pernah di-set
-          if (newStats[prevPhase].startTime && !newStats[prevPhase].endTime) {
-            const endTime = Date.now();
-            newStats[prevPhase].endTime = endTime;
-            
-            // ✅ SIMPAN DURASI FINAL (dalam detik)
-            const finalDurationSeconds = (endTime - newStats[prevPhase].startTime) / 1000;
-            newStats[prevPhase].duration = finalDurationSeconds; // ✅ DURASI TERSIMPAN DI SINI
-            
-            console.log(`⏹️ ${prevPhase.toUpperCase()} phase ended at ${formatTime(endTime)}`);
-            console.log(`⏱️ Final duration: ${finalDurationSeconds.toFixed(1)}s (${(finalDurationSeconds/60).toFixed(2)} minutes)`);
-            console.log(`⚡ Final energy: ${newStats[prevPhase].energyWh.toFixed(4)} Wh`);
-            console.log(`🌡️ Avg temp: ${newStats[prevPhase].tempCount > 0 ? (newStats[prevPhase].tempSum / newStats[prevPhase].tempCount).toFixed(1) : '--'}°C`);
-            }
+            newStats[detectedPhase].lastUpdateTime = startTime;
+            console.log(`▶️ ${detectedPhase.toUpperCase()} phase STARTED at ${formatTime(startTime)}`);
           }
           
           return newStats;
@@ -375,31 +382,40 @@ const BatteryChargerDashboard = () => {
       // Akumulasi data jika sedang dalam fase
       if (detectedPhase && loggingActiveRef.current) {
         setPhaseStats(prev => {
-          const newStats = { ...prev };
+          const newStats = JSON.parse(JSON.stringify(prev)); // Deep copy
           const phase = newStats[detectedPhase];
+          
+          // ✅ JANGAN UPDATE JIKA FASE SUDAH SELESAI (endTime sudah ada)
+          if (phase.endTime) {
+            console.warn(`⚠️ Skipping update for completed phase: ${detectedPhase}`);
+            return prev; // Kembalikan state lama tanpa perubahan
+          }
+          
           const currentTime = Date.now();
           let timeIntervalHours;
+          
           if (phase.lastUpdateTime) {
-            // Hitung interval waktu aktual (dalam jam)
             const intervalMs = currentTime - phase.lastUpdateTime;
-            timeIntervalHours = intervalMs / (1000 * 3600); // ms ke jam
-            console.log(`⏱️ Actual interval: ${intervalMs}ms (${(intervalMs/1000).toFixed(2)}s)`);
+            timeIntervalHours = intervalMs / (1000 * 3600);
+            console.log(`⏱️ Interval: ${intervalMs}ms (${(intervalMs/1000).toFixed(2)}s)`);
           } else {
-            // Jika ini data pertama, gunakan asumsi 1 detik
-            timeIntervalHours = 1 / 3600;
-            console.log(`⏱️ First data point, using default 1s interval`);
+            timeIntervalHours = 1 / 3600; // Default 1 detik
+            console.log(`⏱️ First data point, using 1s interval`);
           }
+          
           phase.lastUpdateTime = currentTime;
+          
           // Tambah voltage & current readings
           phase.voltageReadings.push(chargerData.voltage);
           phase.currentReadings.push(chargerData.current);
-          // Hitung energy increment (Wh)
-          // Energy = V * I * time_interval (dalam hours)
-          // Asumsi data datang setiap 1 detik
+          
+          // ✅ HITUNG ENERGY INCREMENT
           const energyIncrement = chargerData.voltage * chargerData.current * timeIntervalHours;
           phase.energyWh += energyIncrement;
           
-          // Tambah temperature data
+          console.log(`⚡ Energy += ${energyIncrement.toFixed(6)} Wh | Total: ${phase.energyWh.toFixed(4)} Wh`);
+          
+          // ✅ TAMBAH TEMPERATURE DATA
           if (latestTemp?.celsius) {
             phase.tempSum += latestTemp.celsius;
             phase.tempCount += 1;
@@ -415,12 +431,10 @@ const BatteryChargerDashboard = () => {
     });
 
     const tempRef = ref(rtdb, 'sensorData/temperature');
-    
     onValue(tempRef, (snapshot) => {
       const data = snapshot.val();
-      
       if (!data) return;
-
+    
       const tempData = {
         celsius: Number(data.celsius) || 0,
         fahrenheit: Number(data.fahrenheit) || 0,
@@ -428,20 +442,25 @@ const BatteryChargerDashboard = () => {
       };
       
       setLatestTemp(tempData);
+      
+      // ✅ TAMBAHKAN TEMP KE FASE YANG SEDANG AKTIF
       if (loggingActiveRef.current && prevPhaseRef.current) {
-          setPhaseStats(prev => {
-            const newStats = { ...prev };
-            const currentPhase = prevPhaseRef.current;
-            
-            if (currentPhase && newStats[currentPhase]) {
-              newStats[currentPhase].tempSum += tempData.celsius;
-              newStats[currentPhase].tempCount += 1;
-              console.log(`🌡️ Temp added to ${currentPhase}: ${tempData.celsius}°C (Count: ${newStats[currentPhase].tempCount})`);
-            }
-            
-            return newStats;
-          });
-        }
+        setPhaseStats(prev => {
+          const newStats = JSON.parse(JSON.stringify(prev));
+          const currentPhase = prevPhaseRef.current;
+          
+          // Hanya update jika fase belum selesai
+          if (currentPhase && newStats[currentPhase] && !newStats[currentPhase].endTime) {
+            newStats[currentPhase].tempSum += tempData.celsius;
+            newStats[currentPhase].tempCount += 1;
+            console.log(`🌡️ Temp added to ${currentPhase}: ${tempData.celsius}°C (Count: ${newStats[currentPhase].tempCount}, Avg: ${(newStats[currentPhase].tempSum/newStats[currentPhase].tempCount).toFixed(1)}°C)`);
+          }
+          
+          return newStats;
+        });
+      }
+      
+      // Log temperature data
       if (loggingActiveRef.current) {
         logTemperatureData(tempData, push, set, ref, rtdb);
       }
@@ -1276,12 +1295,26 @@ const BatteryChargerDashboard = () => {
                     <div className="flex justify-between">
                       <span className="text-gray-600">Duration:</span>
                       <span className="font-semibold text-gray-800">
-                        {phaseStats.cc.duration > 0 
-                          ? `${Math.floor(phaseStats.cc.duration / 60)}m ${Math.floor(phaseStats.cc.duration % 60)}s`
-                          : currentPhase === 'cc' && phaseStats.cc.startTime
-                            ? `${Math.floor((Date.now() - phaseStats.cc.startTime) / 60000)}m ${Math.floor(((Date.now() - phaseStats.cc.startTime) % 60000) / 1000)}s`
-                            : '0s'
-                        }
+                        {(() => {
+                              // ✅ PRIORITAS 1: Jika fase CC sudah selesai (ada endTime), tampilkan durasi final
+                              if (phaseStats.cc.endTime && phaseStats.cc.duration > 0) {
+                                const seconds = phaseStats.cc.duration; // Durasi sudah dalam detik
+                                const m = Math.floor(seconds / 60);
+                                const s = Math.floor(seconds % 60);
+                                return `${m}m ${s}s`;
+                              }
+                              
+                              // ✅ PRIORITAS 2: Jika fase CC sedang aktif, hitung durasi realtime
+                              if (currentPhase === 'cc' && phaseStats.cc.startTime && !phaseStats.cc.endTime) {
+                                const elapsedMs = Date.now() - phaseStats.cc.startTime;
+                                const elapsedSeconds = elapsedMs / 1000;
+                                const m = Math.floor(elapsedSeconds / 60);
+                                const s = Math.floor(elapsedSeconds % 60);
+                                return `${m}m ${s}s`;
+                              }
+                              // ✅ PRIORITAS 3: Fase belum dimulai atau tidak aktif
+                              return '0s';
+                            })()}
                       </span>
                     </div>
                     <div className="flex justify-between">
@@ -1317,12 +1350,27 @@ const BatteryChargerDashboard = () => {
                     <div className="flex justify-between">
                       <span className="text-gray-600">Duration:</span>
                       <span className="font-semibold text-gray-800">
-                        {phaseStats.cv.duration > 0 
-                          ? `${Math.floor(phaseStats.cv.duration / 60)}m ${Math.floor(phaseStats.cv.duration % 60)}s`
-                          : currentPhase === 'cv' && phaseStats.cv.startTime
-                            ? `${Math.floor((Date.now() - phaseStats.cv.startTime) / 60000)}m ${Math.floor(((Date.now() - phaseStats.cv.startTime) % 60000) / 1000)}s`
-                            : '0s'
-                        }
+                        {(() => {
+                              // ✅ PRIORITAS 1: Jika fase CV sudah selesai (ada endTime), tampilkan durasi final
+                              if (phaseStats.cv.endTime && phaseStats.cv.duration > 0) {
+                                const seconds = phaseStats.cv.duration; // Durasi sudah dalam detik
+                                const m = Math.floor(seconds / 60);
+                                const s = Math.floor(seconds % 60);
+                                return `${m}m ${s}s`;
+                              }
+                              
+                              // ✅ PRIORITAS 2: Jika fase CC sedang aktif, hitung durasi realtime
+                              if (currentPhase === 'cv' && phaseStats.cv.startTime && !phaseStats.cv.endTime) {
+                                const elapsedMs = Date.now() - phaseStats.cv.startTime;
+                                const elapsedSeconds = elapsedMs / 1000;
+                                const m = Math.floor(elapsedSeconds / 60);
+                                const s = Math.floor(elapsedSeconds % 60);
+                                return `${m}m ${s}s`;
+                              }
+                              
+                              // ✅ PRIORITAS 3: Fase belum dimulai atau tidak aktif
+                              return '0s';
+                            })()}
                       </span>
                     </div>
                     <div className="flex justify-between">
@@ -1527,6 +1575,7 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
 
 
