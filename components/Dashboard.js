@@ -270,27 +270,49 @@ const BatteryChargerDashboard = () => {
       
       const prevUpper = prevState.toUpperCase();
       const currUpper = incomingState.toUpperCase();
-      console.log(`🔄 State Change: ${prevState} → ${incomingState} | Logging: ${loggingActiveRef.current}`);
+      
+      console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+      console.log(`🔄 STATE CHANGE DETECTED`);
+      console.log(`   From: ${prevState} (${prevUpper}) → To: ${incomingState} (${currUpper})`);
+      console.log(`   Current Logging Status: ${loggingActiveRef.current}`);
+      console.log(`   Previous Phase: ${prevPhaseRef.current}`);
+      console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+      
+      // ========================================
+      // ✅ STOP LOGGING CONDITIONS
+      // ========================================
       if (currUpper === 'IDLE' && loggingActiveRef.current) {
         console.log('🔴 STOP LOGGING: Returned to IDLE');
         loggingActiveRef.current = false;
         setIsLoggingActive(false);
       }
       
-      if (
-        prevUpper === 'DETECT' &&
-        currUpper !== 'DETECT' &&
-        !loggingActiveRef.current
-      ) {
-        console.log('🟢 LOGGING START (DETECT EXIT):', prevState, '→', incomingState);
-        loggingActiveRef.current = true;
-        setIsLoggingActive(true);
-        setLoggingStartTime(Date.now());
-      }
       if (currUpper === 'DONE' && loggingActiveRef.current) {
         console.log('🔴 STOP LOGGING: Charging completed (DONE state)');
         loggingActiveRef.current = false;
         setIsLoggingActive(false);
+      }
+      
+      // ========================================
+      // ✅ START LOGGING CONDITIONS
+      // ========================================
+      // Kondisi 1: Keluar dari DETECT state (transisi utama)
+      if (prevUpper === 'DETECT' && currUpper !== 'DETECT' && currUpper !== 'IDLE' && !loggingActiveRef.current) {
+        console.log('🟢 LOGGING START (DETECT EXIT)');
+        console.log(`   Transition: ${prevState} → ${incomingState}`);
+        loggingActiveRef.current = true;
+        setIsLoggingActive(true);
+        setLoggingStartTime(Date.now());
+      }
+      
+      // Kondisi 2: Langsung masuk ke CC/CV dari state lain (fallback)
+      if (!loggingActiveRef.current && (currUpper === 'CC' || currUpper === 'TRANSISI' || currUpper === 'CV')) {
+        console.log('🟢 LOGGING START (DIRECT TO CHARGING PHASE)');
+        console.log(`   Detected charging state: ${incomingState}`);
+        console.log(`   Previous state: ${prevState}`);
+        loggingActiveRef.current = true;
+        setIsLoggingActive(true);
+        setLoggingStartTime(Date.now());
       }
       
       if (currUpper === 'IDLE' && loggingActiveRef.current) {
@@ -322,6 +344,9 @@ const BatteryChargerDashboard = () => {
         setIsLoggingActive(true);
         setLoggingStartTime(Date.now());
       }
+      setPreviousState(prevState);
+      setCurrentState(incomingState);
+      prevStateRef.current = incomingState;
       // Deteksi fase saat ini
       const currState = incomingState.toUpperCase();
       let detectedPhase = null;
@@ -342,6 +367,20 @@ const BatteryChargerDashboard = () => {
       
       // Update current phase
       setCurrentPhase(detectedPhase);
+      console.log(`🔍 Phase Status After Detection:`);
+      console.log(`   Current Phase: ${detectedPhase}`);
+      console.log(`   Previous Phase: ${previousPhase}`);
+      console.log(`   Logging Active: ${loggingActiveRef.current}`);
+      console.log(`   Phase Stats CC:`, {
+        hasStartTime: !!phaseStats.cc.startTime,
+        hasEndTime: !!phaseStats.cc.endTime,
+        duration: phaseStats.cc.duration
+      });
+      console.log(`   Phase Stats CV:`, {
+        hasStartTime: !!phaseStats.cv.startTime,
+        hasEndTime: !!phaseStats.cv.endTime,
+        duration: phaseStats.cv.duration
+      });
       console.log(`🔍 Current Phase: ${detectedPhase} | Prev Phase: ${previousPhase} | Logging: ${loggingActiveRef.current}`);
       
       // ========================================
@@ -415,6 +454,8 @@ const BatteryChargerDashboard = () => {
             console.log(`   Start Time: ${formatTime(startTime)}`);
             console.log(`   Initial State: READY FOR DATA ACCUMULATION`);
             console.log(`════════════════════════════════════════════════════`);
+          }else {
+            console.log(`⚠️ ${detectedPhase.toUpperCase()} phase already started at ${formatTime(newStats[detectedPhase].startTime)}`);
           }
           
           return newStats;
@@ -1803,6 +1844,7 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
 
 
