@@ -1227,22 +1227,19 @@ const BatteryChargerDashboard = () => {
             </div>
             <div className="flex items-center gap-2 sm:gap-4 w-full sm:w-auto">
               <div className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl flex items-center gap-1 sm:gap-2 text-xs sm:text-sm flex-1 sm:flex-none ${
-                isPaused ? 'bg-red-100 text-red-700' :
+                isPaused ? 'bg-red-100 text-red-700' : 
                 isLoggingActive ? 'bg-green-100 text-green-700' : 
                 currentState.toUpperCase() === 'DETECT' ? 'bg-yellow-100 text-yellow-700' :
                 'bg-gray-100 text-gray-500'
               }`}>
                 <div className={`w-2 h-2 sm:w-3 sm:h-3 rounded-full ${
-                  isPaused ? 'bg-red-500' :
+                  isPaused ? 'bg-red-500' : 
                   isLoggingActive ? 'bg-green-500 animate-pulse' : 
                   currentState.toUpperCase() === 'DETECT' ? 'bg-yellow-500 animate-pulse' :
                   'bg-gray-400'
                 }`} />
                 <span className="font-medium truncate">
-                  {isPaused ? '⏸️ PAUSED' :
-                   isLoggingActive ? `Log: ${currentState}` : 
-                   currentState.toUpperCase() === 'DETECT' ? 'Waiting...' :
-                   `Standby`}
+                  {isPaused ? '⏸️ PAUSED' : isLoggingActive ? `Log: ${currentState}` : currentState.toUpperCase() === 'DETECT' ? 'Waiting...' : 'Standby'}
                 </span>
               </div>
               <button onClick={loadHistoryData} className="p-2 sm:p-3 bg-blue-50 hover:bg-blue-100 rounded-xl transition-colors flex-shrink-0">
@@ -1737,6 +1734,7 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
 
 
