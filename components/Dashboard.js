@@ -51,6 +51,7 @@ const BatteryChargerDashboard = () => {
   const [previousState, setPreviousState] = useState('idle');
   const [isLoggingActive, setIsLoggingActive] = useState(false);
   const [loggingStartTime, setLoggingStartTime] = useState(null);
+  const [isPaused, setIsPaused] = useState(false);
   const prevStateRef = useRef('idle');
   const loggingActiveRef = useRef(false);
   const [loading, setLoading] = useState(true);
@@ -240,7 +241,10 @@ const BatteryChargerDashboard = () => {
       const data = snapshot.val();
       
       if (!data) return;
-
+      if (isPaused) {
+        console.log('⏸️ PAUSED - Skipping charger update');
+        return;
+      }
       const stateFromRTDB = String(data.state || 'Unknown');
 
       const chargerData = {
@@ -468,7 +472,10 @@ const BatteryChargerDashboard = () => {
     onValue(tempRef, (snapshot) => {
       const data = snapshot.val();
       if (!data) return;
-    
+      if (isPaused) {
+        console.log('⏸️ PAUSED - Skipping temperature update');
+        return;
+      }
       const tempData = {
         celsius: Number(data.celsius) || 0,
         fahrenheit: Number(data.fahrenheit) || 0,
@@ -637,7 +644,34 @@ const BatteryChargerDashboard = () => {
     
     return true;
   };
-
+  const handlePauseResume = async () => {
+    if (!window.firebaseInstances) {
+      alert('❌ Firebase not initialized');
+      return;
+    }
+  
+    const { rtdb, ref, set } = window.firebaseInstances;
+    
+    try {
+      const newPauseState = !isPaused;
+      
+      // Update status di Firebase RTDB
+      await set(ref(rtdb, 'config/status'), newPauseState ? 'paused' : 'charging');
+      
+      setIsPaused(newPauseState);
+      
+      console.log(newPauseState ? '⏸️ System PAUSED' : '▶️ System RESUMED');
+      
+      alert(newPauseState 
+        ? '⏸️ Sistem PAUSED\n\n• Dashboard tidak update\n• Logging dihentikan\n• ESP32 akan menerima status PAUSED'
+        : '▶️ Sistem RESUMED\n\nCharging dilanjutkan...'
+      );
+      
+    } catch (error) {
+      console.error('❌ Error toggling pause:', error);
+      alert('❌ Gagal mengubah status: ' + error.message);
+    }
+  };
   const handleDoneButton = async () => {
     const currStateUpper = currentState.toUpperCase();
     
@@ -647,31 +681,73 @@ const BatteryChargerDashboard = () => {
     }
     
     if (!confirm('Hapus semua data history, reset ke IDLE, dan kembali ke halaman konfigurasi?')) return;
-
+  
     setDoneLoading(true);
     
     try {
       const { rtdb, ref, remove, set } = window.firebaseInstances;
       
+      // ✅ 1. Reset Latest Charger Data ke 0
+      await set(ref(rtdb, 'chargerData/latest'), {
+        voltage: 0,
+        current: 0,
+        state: 'IDLE',
+        timestamp: Date.now()
+      });
+      console.log('✅ Charger data reset to 0V, 0A');
+      
+      // ✅ 2. Hapus history
       await remove(ref(rtdb, 'sensorData/history'));
       console.log('✅ Temperature history cleared');
       
       await remove(ref(rtdb, 'chargerData/history'));
       console.log('✅ Charger history cleared');
       
-      await set(ref(rtdb, 'config/status'), 'done');
-      console.log('✅ Config status reset to DONE');
+      // ✅ 3. Set config status ke 'idle' (bukan 'done')
+      await set(ref(rtdb, 'config/status'), 'idle');
+      console.log('✅ Config status reset to IDLE');
       
+      // ✅ 4. Reset local state
+      setLatestCharger({ voltage: 0, current: 0, state: 'IDLE', timestamp: Date.now() });
       setCurrentState('idle');
       setPreviousState('idle');
       setIsLoggingActive(false);
       setLoggingStartTime(null);
+      setIsPaused(false); // ✅ Reset pause state
       prevStateRef.current = 'idle';
       loggingActiveRef.current = false;
       
+      // ✅ 5. Reset phase stats
+      setPhaseStats({
+        cc: {
+          energyWh: 0,
+          duration: 0,
+          startTime: null,
+          endTime: null,
+          lastUpdateTime: null,
+          tempSum: 0,
+          tempCount: 0,
+          voltageReadings: [],
+          currentReadings: []
+        },
+        cv: {
+          energyWh: 0,
+          duration: 0,
+          startTime: null,
+          endTime: null,
+          lastUpdateTime: null,
+          tempSum: 0,
+          tempCount: 0,
+          voltageReadings: [],
+          currentReadings: []
+        }
+      });
+      setCurrentPhase(null);
+      prevPhaseRef.current = null;
+      
       console.log('✅ State machine reset');
       
-      alert('✅ Data berhasil dihapus. Kembali ke halaman konfigurasi...');
+      alert('✅ Data berhasil dihapus.\n• Voltage: 0V\n• Current: 0A\n• State: IDLE\n\nKembali ke halaman konfigurasi...');
       
       setTimeout(() => {
         setShowConfig(true);
@@ -686,7 +762,7 @@ const BatteryChargerDashboard = () => {
   };
 
   const handleResetCharging = async () => {
-    if (!confirm('⚠️ RESET CHARGING\n\nIni akan:\n• Menghapus semua data history\n• Menghentikan proses charging\n• Reset status ke DONE\n• Kembali ke halaman konfigurasi\n\nLanjutkan?')) {
+    if (!confirm('⚠️ RESET CHARGING\n\nIni akan:\n• Menghapus semua data history\n• Menghentikan proses charging\n• Reset voltage & current ke 0\n• Reset status ke IDLE\n• Kembali ke halaman konfigurasi\n\nLanjutkan?')) {
       return;
     }
   
@@ -695,29 +771,44 @@ const BatteryChargerDashboard = () => {
     try {
       const { rtdb, ref, remove, set } = window.firebaseInstances;
       
+      // ✅ 1. Reset Latest Charger Data ke 0
+      await set(ref(rtdb, 'chargerData/latest'), {
+        voltage: 0,
+        current: 0,
+        state: 'IDLE',
+        timestamp: Date.now()
+      });
+      console.log('✅ Charger data reset to 0V, 0A');
+      
+      // ✅ 2. Hapus history
       await remove(ref(rtdb, 'sensorData/history'));
       console.log('✅ Temperature history cleared');
       
       await remove(ref(rtdb, 'chargerData/history'));
       console.log('✅ Charger history cleared');
       
-      await set(ref(rtdb, 'config/status'), 'done');
-      console.log('✅ Config status reset to DONE');
+      // ✅ 3. Set config status ke 'idle'
+      await set(ref(rtdb, 'config/status'), 'idle');
+      console.log('✅ Config status reset to IDLE');
       
+      // ✅ 4. Reset local state
+      setLatestCharger({ voltage: 0, current: 0, state: 'IDLE', timestamp: Date.now() });
       setCurrentState('idle');
       setPreviousState('idle');
       setIsLoggingActive(false);
       setLoggingStartTime(null);
+      setIsPaused(false); // ✅ Reset pause state
       prevStateRef.current = 'idle';
       loggingActiveRef.current = false;
-      // Reset phase stats
+      
+      // ✅ 5. Reset phase stats
       setPhaseStats({
         cc: {
           energyWh: 0,
           duration: 0,
           startTime: null,
           endTime: null,
-          lastUpdateTime: null, // ✅ TAMBAHKAN
+          lastUpdateTime: null,
           tempSum: 0,
           tempCount: 0,
           voltageReadings: [],
@@ -728,7 +819,7 @@ const BatteryChargerDashboard = () => {
           duration: 0,
           startTime: null,
           endTime: null,
-          lastUpdateTime: null, // ✅ TAMBAHKAN
+          lastUpdateTime: null,
           tempSum: 0,
           tempCount: 0,
           voltageReadings: [],
@@ -737,9 +828,10 @@ const BatteryChargerDashboard = () => {
       });
       setCurrentPhase(null);
       prevPhaseRef.current = null;
+      
       console.log('✅ State machine reset via manual reset');
       
-      alert('✅ Charging berhasil direset!\n\nKembali ke halaman konfigurasi...');
+      alert('✅ Charging berhasil direset!\n• Voltage: 0V\n• Current: 0A\n• State: IDLE\n\nKembali ke halaman konfigurasi...');
       
       setTimeout(() => {
         setShowConfig(true);
@@ -1267,6 +1359,27 @@ const BatteryChargerDashboard = () => {
               <div className="flex items-center gap-1 sm:gap-2">
                 <Battery className="w-4 h-4 sm:w-5 sm:h-5 text-green-600" />
                 <span className="text-xs sm:text-sm font-semibold text-gray-700">State of Charge (SOC)</span>
+                {/* ✅ TAMBAH TOMBOL PAUSE/RESUME */}
+                <button
+                  onClick={handlePauseResume}
+                  className={`px-2 sm:px-3 py-1 rounded-lg font-semibold text-xs flex items-center gap-1 transition-all ${
+                    isPaused 
+                      ? 'bg-green-500 hover:bg-green-600 text-white' 
+                      : 'bg-orange-500 hover:bg-orange-600 text-white'
+                  }`}
+                >
+                  {isPaused ? (
+                    <>
+                      <span>▶️</span>
+                      <span className="hidden sm:inline">Resume</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>⏸️</span>
+                      <span className="hidden sm:inline">Pause</span>
+                    </>
+                  )}
+                </button>
               </div>
               <div className="text-left sm:text-right w-full sm:w-auto">
                 <span className="text-xl sm:text-2xl font-bold text-green-600">
@@ -1609,6 +1722,7 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
 
 
