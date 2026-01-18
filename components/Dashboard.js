@@ -264,6 +264,7 @@ const BatteryChargerDashboard = () => {
         state: stateFromRTDB,
         timestamp: parseTimestamp(data.timestamp) || Date.now()
       };
+      setLatestCharger(chargerData);
       
       const incomingState = String(data.state || 'Unknown');
       const prevState = prevStateRef.current;
@@ -1844,6 +1845,7 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
 
 
