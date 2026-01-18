@@ -787,7 +787,6 @@ const BatteryChargerDashboard = () => {
       setPreviousState('idle');
       setIsLoggingActive(false);
       setLoggingStartTime(null);
-      setIsPaused(false);
       prevStateRef.current = 'idle';
       loggingActiveRef.current = false;
       
@@ -875,7 +874,6 @@ const BatteryChargerDashboard = () => {
       setPreviousState('idle');
       setIsLoggingActive(false);
       setLoggingStartTime(null);
-      setIsPaused(false);
       prevStateRef.current = 'idle';
       loggingActiveRef.current = false;
       
@@ -1845,6 +1843,7 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
 
 
