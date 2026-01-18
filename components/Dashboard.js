@@ -323,8 +323,6 @@ const BatteryChargerDashboard = () => {
       // ✅ TRACKING FASE DAN KALKULASI ENERGY
       const currState = incomingState.toUpperCase();
       
-      // Deteksi fase saat ini
-      let detectedPhase = null;
       if (currState === 'CC' || currState === 'TRANSISI') {
         detectedPhase = 'cc'; // CC + Transisi digabung
       } else if (currState === 'CV') {
@@ -1529,6 +1527,7 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
 
 
