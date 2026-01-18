@@ -315,34 +315,32 @@ const BatteryChargerDashboard = () => {
       } else {
         console.log(`⚠️ No phase detected for state: ${currState}`);
       }
+      
       // Update current phase
       setCurrentPhase(detectedPhase);
-      console.log(`🔍 Current Phase: ${detectedPhase} | Prev Phase: ${prevPhaseRef.current} | Logging: ${loggingActiveRef.current}`); // ✅ TAMBAHAN
+      console.log(`🔍 Current Phase: ${detectedPhase} | Prev Phase: ${prevPhaseRef.current} | Logging: ${loggingActiveRef.current}`);
+      
       prevStateRef.current = incomingState;
       setPreviousState(prevState);
       setCurrentState(incomingState);
       setLatestCharger(chargerData);
       
-      // ✅ TRACKING FASE DAN KALKULASI ENERGY
-      const currState = incomingState.toUpperCase();
-      
-      if (currState === 'CC' || currState === 'TRANSISI') {
-        detectedPhase = 'cc'; // CC + Transisi digabung
-      } else if (currState === 'CV') {
-        detectedPhase = 'cv';
-      }
-      
-      // Update current phase
-      setCurrentPhase(detectedPhase);
-      
-      // Jika fase berubah
+      // ========================================
+      // ✅ PHASE TRANSITION HANDLING
+      // ========================================
       if (detectedPhase !== prevPhaseRef.current && detectedPhase !== null) {
-        console.log(`🔄 Phase transition detected: ${prevPhaseRef.current} → ${detectedPhase}`);
+        console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+        console.log(`🔄 PHASE TRANSITION DETECTED`);
+        console.log(`   From: ${prevPhaseRef.current || 'null'} → To: ${detectedPhase}`);
+        console.log(`   Timestamp: ${formatTime(Date.now())}`);
+        console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
         
         setPhaseStats(prev => {
-          const newStats = JSON.parse(JSON.stringify(prev)); // Deep copy untuk menghindari mutation
+          const newStats = JSON.parse(JSON.stringify(prev)); // Deep copy
           
-          // 1. END PREVIOUS PHASE - SIMPAN DURASI DAN DATA FINAL
+          // ========================================
+          // 1. END PREVIOUS PHASE
+          // ========================================
           if (prevPhaseRef.current && prevPhaseRef.current !== detectedPhase) {
             const prevPhase = prevPhaseRef.current;
             
@@ -355,22 +353,33 @@ const BatteryChargerDashboard = () => {
               const finalDurationSeconds = (endTime - newStats[prevPhase].startTime) / 1000;
               newStats[prevPhase].duration = finalDurationSeconds;
               
-              console.log(`⏹️ ${prevPhase.toUpperCase()} phase ENDED at ${formatTime(endTime)}`);
-              console.log(`⏱️ Final duration: ${finalDurationSeconds.toFixed(1)}s`);
-              console.log(`⚡ Final energy: ${newStats[prevPhase].energyWh.toFixed(4)} Wh`);
-              console.log(`🌡️ Avg temp: ${newStats[prevPhase].tempCount > 0 ? (newStats[prevPhase].tempSum / newStats[prevPhase].tempCount).toFixed(1) : '--'}°C`);
+              console.log(`⏹️ ========== ${prevPhase.toUpperCase()} PHASE ENDED ==========`);
+              console.log(`   End Time: ${formatTime(endTime)}`);
+              console.log(`   Final Duration: ${finalDurationSeconds.toFixed(1)}s (${(finalDurationSeconds/60).toFixed(2)} min)`);
+              console.log(`   Final Energy: ${newStats[prevPhase].energyWh.toFixed(4)} Wh`);
+              console.log(`   Avg Temperature: ${newStats[prevPhase].tempCount > 0 ? (newStats[prevPhase].tempSum / newStats[prevPhase].tempCount).toFixed(1) : '--'}°C`);
+              console.log(`   Total Readings: ${newStats[prevPhase].voltageReadings.length}`);
+              console.log(`   Temperature Samples: ${newStats[prevPhase].tempCount}`);
+              console.log(`════════════════════════════════════════════════════`);
               
               // ✅ FREEZE DATA - Tidak boleh berubah lagi
               Object.freeze(newStats[prevPhase]);
+              console.log(`🔒 ${prevPhase.toUpperCase()} phase data FROZEN (immutable)`);
             }
           }
           
+          // ========================================
           // 2. START NEW PHASE
+          // ========================================
           if (!newStats[detectedPhase].startTime) {
             const startTime = Date.now();
             newStats[detectedPhase].startTime = startTime;
             newStats[detectedPhase].lastUpdateTime = startTime;
-            console.log(`▶️ ${detectedPhase.toUpperCase()} phase STARTED at ${formatTime(startTime)}`);
+            
+            console.log(`▶️ ========== ${detectedPhase.toUpperCase()} PHASE STARTED ==========`);
+            console.log(`   Start Time: ${formatTime(startTime)}`);
+            console.log(`   Initial State: READY FOR DATA ACCUMULATION`);
+            console.log(`════════════════════════════════════════════════════`);
           }
           
           return newStats;
@@ -379,15 +388,17 @@ const BatteryChargerDashboard = () => {
       
       prevPhaseRef.current = detectedPhase;
       
-      // Akumulasi data jika sedang dalam fase
+      // ========================================
+      // ✅ DATA ACCUMULATION - ONLY ACTIVE PHASE
+      // ========================================
       if (detectedPhase && loggingActiveRef.current) {
         setPhaseStats(prev => {
           const newStats = JSON.parse(JSON.stringify(prev)); // Deep copy
           const phase = newStats[detectedPhase];
           
-          // ✅ JANGAN UPDATE JIKA FASE SUDAH SELESAI (endTime sudah ada)
+          // ✅ JANGAN UPDATE JIKA FASE SUDAH SELESAI
           if (phase.endTime) {
-            console.warn(`⚠️ Skipping update for completed phase: ${detectedPhase}`);
+            console.warn(`⚠️ SKIPPING UPDATE: ${detectedPhase.toUpperCase()} phase already completed (frozen)`);
             return prev; // Kembalikan state lama tanpa perubahan
           }
           
@@ -397,10 +408,15 @@ const BatteryChargerDashboard = () => {
           if (phase.lastUpdateTime) {
             const intervalMs = currentTime - phase.lastUpdateTime;
             timeIntervalHours = intervalMs / (1000 * 3600);
-            console.log(`⏱️ Interval: ${intervalMs}ms (${(intervalMs/1000).toFixed(2)}s)`);
+            
+            // Log setiap 10 update untuk menghindari spam
+            if (phase.voltageReadings.length % 10 === 0) {
+              console.log(`📊 ${detectedPhase.toUpperCase()} UPDATE #${phase.voltageReadings.length + 1}`);
+              console.log(`   Interval: ${intervalMs}ms (${(intervalMs/1000).toFixed(2)}s)`);
+            }
           } else {
             timeIntervalHours = 1 / 3600; // Default 1 detik
-            console.log(`⏱️ First data point, using 1s interval`);
+            console.log(`⏱️ First data point for ${detectedPhase.toUpperCase()}, using 1s interval`);
           }
           
           phase.lastUpdateTime = currentTime;
@@ -413,18 +429,30 @@ const BatteryChargerDashboard = () => {
           const energyIncrement = chargerData.voltage * chargerData.current * timeIntervalHours;
           phase.energyWh += energyIncrement;
           
-          console.log(`⚡ Energy += ${energyIncrement.toFixed(6)} Wh | Total: ${phase.energyWh.toFixed(4)} Wh`);
+          // Log detail setiap 10 update
+          if (phase.voltageReadings.length % 10 === 0) {
+            console.log(`   Voltage: ${chargerData.voltage.toFixed(3)}V | Current: ${chargerData.current.toFixed(3)}A`);
+            console.log(`   Energy Increment: ${energyIncrement.toFixed(6)} Wh`);
+            console.log(`   Total Energy: ${phase.energyWh.toFixed(4)} Wh`);
+          }
           
           // ✅ TAMBAH TEMPERATURE DATA
           if (latestTemp?.celsius) {
             phase.tempSum += latestTemp.celsius;
             phase.tempCount += 1;
-            console.log(`🌡️ Temp added to ${detectedPhase}: ${latestTemp.celsius}°C (Count: ${phase.tempCount}, Avg: ${(phase.tempSum/phase.tempCount).toFixed(1)}°C)`);
+            
+            // Log temperature setiap 10 update
+            if (phase.tempCount % 10 === 0) {
+              console.log(`🌡️ Temperature Update #${phase.tempCount}`);
+              console.log(`   Current: ${latestTemp.celsius.toFixed(1)}°C`);
+              console.log(`   Average: ${(phase.tempSum / phase.tempCount).toFixed(1)}°C`);
+            }
           }
           
           return newStats;
         });
       }
+      
       if (loggingActiveRef.current) {
         logChargerData(chargerData, push, set, ref, rtdb);
       }
@@ -1575,6 +1603,7 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
 
 
