@@ -147,6 +147,15 @@ const BatteryChargerDashboard = () => {
         console.log('⏸️ Pause state from Firebase:', paused);
       }
     });
+    
+    onValue(ref(rtdb, 'config/targetVoltage'), (snapshot) => {
+      const voltage = snapshot.val();
+      if (voltage) {
+        setTargetVoltage(parseFloat(voltage));
+        console.log('🔋 Target Voltage loaded:', voltage);
+      }
+    });
+  }; 
 
   const handleSendConfiguration = async () => {
     if (!window.firebaseInstances) {
@@ -1734,6 +1743,7 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
 
 
