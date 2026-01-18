@@ -1240,7 +1240,7 @@ const BatteryChargerDashboard = () => {
                 }`} />
                 <span className="font-medium truncate">
                   {isPaused ? '⏸️ PAUSED' :
-                  {isLoggingActive ? `Log: ${currentState}` : 
+                   isLoggingActive ? `Log: ${currentState}` : 
                    currentState.toUpperCase() === 'DETECT' ? 'Waiting...' :
                    `Standby`}
                 </span>
@@ -1737,6 +1737,7 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
 
 
