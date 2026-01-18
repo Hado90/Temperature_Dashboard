@@ -65,6 +65,7 @@ const BatteryChargerDashboard = () => {
       duration: 0,
       startTime: null,
       endTime: null,
+      lastUpdateTime: null,
       tempSum: 0,
       tempCount: 0,
       voltageReadings: [],
@@ -75,6 +76,7 @@ const BatteryChargerDashboard = () => {
       duration: 0,
       startTime: null,
       endTime: null,
+      lastUpdateTime: null,
       tempSum: 0,
       tempCount: 0,
       voltageReadings: [],
@@ -291,14 +293,29 @@ const BatteryChargerDashboard = () => {
         !loggingActiveRef.current &&
         currUpper !== 'IDLE' &&
         currUpper !== 'DETECT' &&
-        currUpper !== 'WAIT_CFG'
+        currUpper !== 'WAIT_CFG' &&
+        (prevUpper === 'DETECT' || stats.total > 0)
       ) {
         console.warn('⚠️ FALLBACK LOGGING START:', prevState, '→', incomingState);
         loggingActiveRef.current = true;
         setIsLoggingActive(true);
         setLoggingStartTime(Date.now());
       }
-
+      // Deteksi fase saat ini
+      let detectedPhase = null;
+      if (currState === 'CC' || currState === 'TRANSISI') {
+        detectedPhase = 'cc';
+        console.log(`✅ Detected phase: CC (actual state: ${currState})`); // ✅ TAMBAHAN
+      } else if (currState === 'CV') {
+        detectedPhase = 'cv';
+        console.log(`✅ Detected phase: CV`); // ✅ TAMBAHAN
+      } else {
+        console.log(`⚠️ No phase detected for state: ${currState}`); // ✅ TAMBAHAN
+      }
+      
+      // Update current phase
+      setCurrentPhase(detectedPhase);
+      console.log(`🔍 Current Phase: ${detectedPhase} | Prev Phase: ${prevPhaseRef.current} | Logging: ${loggingActiveRef.current}`); // ✅ TAMBAHAN
       prevStateRef.current = incomingState;
       setPreviousState(prevState);
       setCurrentState(incomingState);
@@ -413,7 +430,20 @@ const BatteryChargerDashboard = () => {
       };
       
       setLatestTemp(tempData);
-
+      if (loggingActiveRef.current && prevPhaseRef.current) {
+          setPhaseStats(prev => {
+            const newStats = { ...prev };
+            const currentPhase = prevPhaseRef.current;
+            
+            if (currentPhase && newStats[currentPhase]) {
+              newStats[currentPhase].tempSum += tempData.celsius;
+              newStats[currentPhase].tempCount += 1;
+              console.log(`🌡️ Temp added to ${currentPhase}: ${tempData.celsius}°C (Count: ${newStats[currentPhase].tempCount})`);
+            }
+            
+            return newStats;
+          });
+        }
       if (loggingActiveRef.current) {
         logTemperatureData(tempData, push, set, ref, rtdb);
       }
@@ -1499,6 +1529,7 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
 
 
