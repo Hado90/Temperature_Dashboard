@@ -948,7 +948,7 @@ const BatteryChargerDashboard = () => {
     );
   };
 
-  const ChargerTooltip = ({ active, payload }) => {
+  const VoltageTooltip = ({ active, payload }) => {
     if (!active || !payload || !payload.length) return null;
     const point = payload[0]?.payload;
     if (!point) return null;
@@ -956,6 +956,17 @@ const BatteryChargerDashboard = () => {
       <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3">
         <p className="text-sm font-semibold text-gray-800 mb-2">{point.time}</p>
         <p className="text-sm text-green-600">Voltage: {point.voltage?.toFixed(2)}V</p>
+      </div>
+    );
+  };
+  
+  const CurrentTooltip = ({ active, payload }) => {
+    if (!active || !payload || !payload.length) return null;
+    const point = payload[0]?.payload;
+    if (!point) return null;
+    return (
+      <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3">
+        <p className="text-sm font-semibold text-gray-800 mb-2">{point.time}</p>
         <p className="text-sm text-purple-600">Current: {point.current?.toFixed(2)}A</p>
       </div>
     );
@@ -1719,12 +1730,13 @@ const BatteryChargerDashboard = () => {
             </div>
           </div>
         </div>
-        <div className="bg-white rounded-xl sm:rounded-2xl shadow-xl p-3 sm:p-4 lg:p-6 mb-3 sm:mb-4 lg:mb-6 overflow-hidden" id="charger-chart">
+        {/* ========== CHART 1: VOLTAGE ONLY ========== */}
+        <div className="bg-white rounded-xl sm:rounded-2xl shadow-xl p-3 sm:p-4 lg:p-6 mb-3 sm:mb-4 lg:mb-6 overflow-hidden" id="voltage-chart">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3 mb-3 sm:mb-4 lg:mb-6">
             <div className="flex items-center gap-1 sm:gap-2">
               <Zap className="w-4 h-4 sm:w-5 sm:h-5 lg:w-6 lg:h-6 text-green-500" />
               <h3 className="text-sm sm:text-base lg:text-xl font-bold text-gray-800">
-                Voltage & Current ({chargerHistory.length})
+                Voltage History ({chargerHistory.length})
               </h3>
             </div>
             
@@ -1756,12 +1768,10 @@ const BatteryChargerDashboard = () => {
                       interval={Math.floor(chargerChartData.length / 12)} 
                       tick={{ fontSize: 10 }}
                     />
-                    <YAxis yAxisId="left" stroke="#10b981" style={{ fontSize: '10px' }} label={{ value: 'Voltage (V)', angle: -90, position: 'insideLeft', style: { fontSize: '10px' } }} />
-                    <YAxis yAxisId="right" orientation="right" stroke="#8b5cf6" style={{ fontSize: '10px' }} label={{ value: 'Current (A)', angle: 90, position: 'insideRight', style: { fontSize: '10px' } }} />
-                    <Tooltip content={<ChargerTooltip />} />
+                    <YAxis stroke="#10b981" style={{ fontSize: '10px' }} label={{ value: 'Voltage (V)', angle: -90, position: 'insideLeft', style: { fontSize: '10px' } }} />
+                    <Tooltip content={<VoltageTooltip />} />
                     <Legend wrapperStyle={{ paddingTop: '10px', fontSize: '11px' }} />
-                    <Line yAxisId="left" type="monotone" dataKey="voltage" stroke="#10b981" strokeWidth={2} dot={false} name="Voltage (V)" activeDot={{ r: 6 }} />
-                    <Line yAxisId="right" type="monotone" dataKey="current" stroke="#8b5cf6" strokeWidth={2} dot={false} name="Current (A)" activeDot={{ r: 6 }} />
+                    <Line type="monotone" dataKey="voltage" stroke="#10b981" strokeWidth={2} dot={false} name="Voltage (V)" activeDot={{ r: 6 }} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -1770,8 +1780,63 @@ const BatteryChargerDashboard = () => {
             <div className="h-64 sm:h-80 lg:h-96 flex items-center justify-center text-gray-400">
               <div className="text-center">
                 <Activity className="w-12 h-12 sm:w-16 sm:h-16 mx-auto mb-3 sm:mb-4 opacity-50" />
-                <p className="text-sm sm:text-base">Waiting for charging cycle...</p>
-                <p className="text-xs sm:text-sm mt-2">Logging starts when <strong>DETECT</strong> changes</p>
+                <p className="text-sm sm:text-base">Waiting for voltage data...</p>
+              </div>
+            </div>
+          )}
+        </div>
+        
+        {/* ========== CHART 2: CURRENT ONLY ========== */}
+        <div className="bg-white rounded-xl sm:rounded-2xl shadow-xl p-3 sm:p-4 lg:p-6 mb-3 sm:mb-4 lg:mb-6 overflow-hidden" id="current-chart">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3 mb-3 sm:mb-4 lg:mb-6">
+            <div className="flex items-center gap-1 sm:gap-2">
+              <Activity className="w-4 h-4 sm:w-5 sm:h-5 lg:w-6 lg:h-6 text-purple-500" />
+              <h3 className="text-sm sm:text-base lg:text-xl font-bold text-gray-800">
+                Current History ({chargerHistory.length})
+              </h3>
+            </div>
+            
+            <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
+              <button
+                onClick={downloadChargerCSV}
+                className="px-2 sm:px-3 lg:px-4 py-1.5 sm:py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center gap-1 sm:gap-2 transition-all text-xs sm:text-sm font-semibold"
+              >
+                <Download className="w-3 h-3 sm:w-4 sm:h-4" />
+                <span className="hidden sm:inline">CSV</span>
+                <span className="sm:hidden">💾</span>
+              </button>
+            </div>
+          </div>
+          
+          {chargerChartData.length > 0 ? (
+            <div className="w-full overflow-x-auto -mx-3 sm:-mx-4 lg:-mx-6 px-3 sm:px-4 lg:px-6">
+              <div className="min-w-[500px]">
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={chargerChartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                    <XAxis 
+                      dataKey="time" 
+                      stroke="#666" 
+                      style={{ fontSize: '10px' }} 
+                      angle={-45} 
+                      textAnchor="end" 
+                      height={70} 
+                      interval={Math.floor(chargerChartData.length / 12)} 
+                      tick={{ fontSize: 10 }}
+                    />
+                    <YAxis stroke="#8b5cf6" style={{ fontSize: '10px' }} label={{ value: 'Current (A)', angle: -90, position: 'insideLeft', style: { fontSize: '10px' } }} />
+                    <Tooltip content={<CurrentTooltip />} />
+                    <Legend wrapperStyle={{ paddingTop: '10px', fontSize: '11px' }} />
+                    <Line type="monotone" dataKey="current" stroke="#8b5cf6" strokeWidth={2} dot={false} name="Current (A)" activeDot={{ r: 6 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          ) : (
+            <div className="h-64 sm:h-80 lg:h-96 flex items-center justify-center text-gray-400">
+              <div className="text-center">
+                <Activity className="w-12 h-12 sm:w-16 sm:h-16 mx-auto mb-3 sm:mb-4 opacity-50" />
+                <p className="text-sm sm:text-base">Waiting for current data...</p>
               </div>
             </div>
           )}
@@ -1843,6 +1908,7 @@ const BatteryChargerDashboard = () => {
 };
 
 export default BatteryChargerDashboard;
+
 
 
 
